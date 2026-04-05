@@ -24,12 +24,6 @@
 
 ## Known Bugs
 
-**Base-path mismatch risk:**
-- Symptoms: manifest, icon, and service-worker paths assume `/app/...` while Flask serves `/`, `/manifest.json`, and `/sw.js`
-- Trigger: running the wrapper at the domain root instead of behind an `/app/` reverse-proxy prefix
-- Workaround: deploy behind `/app/` or manually edit template/static paths
-- Root cause: frontend asset paths are hardcoded for one deployment shape
-
 **Silent integration failures:**
 - Symptoms: endpoints can return empty arrays or generic wrapper errors without exposing the actual upstream failure
 - Trigger: TorrServer auth mismatch, TorrServer downtime, jacred response changes, or file I/O failures
@@ -71,9 +65,9 @@
 - Test coverage: none
 
 **Playback asset paths and PWA behavior:**
-- Why fragile: `templates/index.html` and `static/sw.js` embed path assumptions that depend on deployment topology
-- Common failures: broken icons, manifest registration, or service-worker cache misses
-- Safe modification: verify both direct-root and reverse-proxy deployments after path changes
+- Why fragile: asset pathing is now relative and scope-aware, but small regressions can still break root or `/app/` deployments
+- Common failures: broken icons, manifest registration, or service-worker cache misses after path changes
+- Safe modification: verify both direct-root and reverse-proxy deployments after any manifest/service-worker/template path edit
 - Test coverage: none
 
 ## Scaling Limits

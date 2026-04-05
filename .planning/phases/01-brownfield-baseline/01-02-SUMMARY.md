@@ -45,6 +45,7 @@ completed: 2026-04-05
 - Added `docs/SMOKE-TESTS.md` for shell and manual verification of wrapper behavior.
 - Updated `AGENTS.md` so future runtime-affecting work points at the smoke-test playbook.
 - Updated `STATE.md` so project memory reflects the current verification path.
+- Normalized manifest, icon, service-worker, and favicon handling so the wrapper shell loads cleanly at root as well as under `/app/`.
 
 ## Task Commits
 
@@ -61,7 +62,14 @@ completed: 2026-04-05
 
 ## Deviations from Plan
 
-None - plan executed exactly as written.
+### Auto-fixed Issues
+
+**1. [Runtime verification] Fixed root-path PWA asset loading**
+- **Found during:** post-plan browser verification
+- **Issue:** the shell still requested `/app/manifest.json` and `/app/sw.js` when served at root, causing 404s on a clean iPad-sized load
+- **Fix:** switched manifest/icon/service-worker references to relative paths, made the service worker scope-aware, and added favicon handling in `app.py`
+- **Files modified:** `templates/index.html`, `static/manifest.json`, `static/sw.js`, `app.py`, `docs/DEPLOYMENT.md`, `docs/SMOKE-TESTS.md`
+- **Verification:** root-path browser reload at iPad-sized viewport completed with no console errors
 
 ## Issues Encountered
 

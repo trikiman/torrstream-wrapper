@@ -6,3 +6,4 @@ repomix-output.xml
 __pycache__/
 *.pyc
 .DS_Store
+.planning/*.log
