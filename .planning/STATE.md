@@ -68,6 +68,7 @@ None yet.
 ### Blockers/Concerns
 
 - No automated test suite exists yet.
+- Use `docs/SMOKE-TESTS.md` as the current verification path for wrapper behavior.
 - Deployment assumptions in frontend assets may still depend on `/app/` pathing.
 
 ## Session Continuity
