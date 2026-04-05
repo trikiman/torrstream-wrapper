@@ -6,7 +6,7 @@ This roadmap treats the existing wrapper as a brownfield codebase that already p
 
 ## Phases
 
-- [ ] **Phase 1: Brownfield Baseline** - Replace stale docs with planning artifacts and operationally accurate project instructions.
+- [x] **Phase 1: Brownfield Baseline** - Replace stale docs with planning artifacts and operationally accurate project instructions. (completed 2026-04-05)
 - [ ] **Phase 2: Library and Management Hardening** - Verify and stabilize listing, file inspection, add, and remove flows.
 - [ ] **Phase 3: Playback and Sync Hardening** - Verify and stabilize streaming, downloading, and per-file resume behavior.
 - [ ] **Phase 4: Discovery and Delivery Alignment** - Verify search, app-shell delivery, and deployment-path correctness.
@@ -24,8 +24,8 @@ This roadmap treats the existing wrapper as a brownfield codebase that already p
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: Map the existing codebase and capture stack, structure, conventions, and risks.
-- [ ] 01-02: Create brownfield planning artifacts and Codex-facing project instructions.
+- [x] 01-01: Map the existing codebase and capture stack, structure, conventions, and risks.
+- [x] 01-02: Create brownfield planning artifacts and Codex-facing project instructions.
 
 ### Phase 2: Library and Management Hardening
 **Goal**: Make core catalog and mutation flows dependable against the real TorrServer integration.
@@ -79,7 +79,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Brownfield Baseline | 0/2 | Not started | - |
+| 1. Brownfield Baseline | 2/2 | Complete    | 2026-04-05 |
 | 2. Library and Management Hardening | 0/3 | Not started | - |
 | 3. Playback and Sync Hardening | 0/3 | Not started | - |
 | 4. Discovery and Delivery Alignment | 0/3 | Not started | - |

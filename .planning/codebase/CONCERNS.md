@@ -32,10 +32,10 @@
 
 ## Security Considerations
 
-**Hardcoded default service credentials:**
-- Risk: `app.py` ships default TorrServer credentials (`admin` / `122662Rus`) as fallback values
-- Current mitigation: env vars can override them
-- Recommendations: remove sensitive defaults and require explicit configuration
+**Optional service credentials require careful deployment config:**
+- Risk: wrapper behavior depends on env-provided TorrServer credentials when auth is enabled upstream
+- Current mitigation: code now defaults to empty credentials rather than shipping a fallback secret
+- Recommendations: set `TORRSERVER_USER` and `TORRSERVER_PASS` explicitly only when the upstream actually requires auth
 
 **Unauthenticated wrapper endpoints:**
 - Risk: if the Flask wrapper is publicly exposed, anyone can list, add, remove, and stream torrents
@@ -79,11 +79,6 @@
 - Scaling path: modularize the backend, add proper WSGI serving, and replace JSON persistence if multi-user demand appears
 
 ## Dependencies at Risk
-
-**Implicit Python dependencies:**
-- Risk: no `requirements.txt` or lockfile exists in the repo
-- Impact: deployments can drift and break on a fresh machine
-- Migration plan: add a minimal dependency manifest and pin known-good versions
 
 **jacred API dependency:**
 - Risk: search UX depends on an external API contract not controlled in this repo

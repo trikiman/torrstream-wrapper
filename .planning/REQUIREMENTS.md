@@ -32,11 +32,11 @@
 ### Delivery
 
 - [ ] **DELV-01**: The web UI loads as a single installable app shell with manifest and service-worker assets.
-- [ ] **DELV-02**: Deployment paths and runtime configuration are documented and aligned with the actual access pattern.
+- [x] **DELV-02**: Deployment paths and runtime configuration are documented and aligned with the actual access pattern.
 
 ### Quality
 
-- [ ] **QUAL-01**: Core wrapper behaviors have a repeatable smoke-verification path.
+- [x] **QUAL-01**: Core wrapper behaviors have a repeatable smoke-verification path.
 
 ## v2 Requirements
 
@@ -63,8 +63,8 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DELV-02 | Phase 1 | Pending |
-| QUAL-01 | Phase 1 | Pending |
+| DELV-02 | Phase 1 | Complete |
+| QUAL-01 | Phase 1 | Complete |
 | LIBR-01 | Phase 2 | Pending |
 | LIBR-02 | Phase 2 | Pending |
 | MGMT-01 | Phase 2 | Pending |

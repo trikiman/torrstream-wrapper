@@ -19,6 +19,12 @@ It provides a browser UI for:
 
 The wrapper depends on a reachable TorrServer instance.
 
+Install dependencies with:
+
+```bash
+pip install -r requirements.txt
+```
+
 Config is driven by environment variables in `app.py`:
 - `TORRSERVER_URL`
 - `TORRSERVER_USER`

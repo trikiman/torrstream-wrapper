@@ -49,9 +49,19 @@ Environment variables:
 
 Current code defaults in `app.py`:
 - `TORRSERVER_URL=http://127.0.0.1:8090`
+- `TORRSERVER_USER=""`
+- `TORRSERVER_PASS=""`
 - `JACRED_URL=https://jacred.xyz`
 
 The wrapper does not replace TorrServer. It reads library state from TorrServer and proxies stream/download traffic to it.
+
+## Dependency Installation
+
+Install runtime dependencies with:
+
+```bash
+pip install -r requirements.txt
+```
 
 ## Supported Deployment Topologies
 

@@ -77,6 +77,17 @@ Expected:
 - response is an array
 - if TorrServer is reachable and has data, items should include hashes/titles
 
+### Status Endpoint
+
+```bash
+curl http://127.0.0.1:5000/api/status
+```
+
+Expected:
+- valid JSON
+- `torrserver.ok` distinguishes reachable-vs-unreachable upstream state
+- `torrserver.torrent_count` indicates whether the upstream library is simply empty
+
 ### Search Endpoint
 
 ```bash
@@ -85,7 +96,7 @@ curl "http://127.0.0.1:5000/api/search?q=test"
 
 Expected:
 - valid JSON with `Results`
-- no server crash even if jacred is unavailable
+- if jacred is unavailable, response still returns JSON with `ok: false`
 
 ## Real-Data Checks
 
@@ -160,11 +171,12 @@ http://127.0.0.1:5000/
 Verify:
 1. the UI loads without a blank screen
 2. the library populates from TorrServer
-3. search returns results
-4. adding a result succeeds
-5. opening a torrent shows file choices
-6. playback starts for a real file
-7. seeking and returning updates resume position
+3. if TorrServer is empty, the UI explicitly says the library is empty instead of looking broken
+4. if jacred is unavailable, search shows a service-unavailable message instead of “nothing found”
+5. adding a result succeeds
+6. opening a torrent shows file choices
+7. playback starts for a real file
+8. seeking and returning updates resume position
 
 ## Pathing Checks
 

@@ -412,6 +412,19 @@ video { max-width: 100%; max-height: 100vh; max-height: 100dvh; width: 100%; }
 .empty { text-align: center; padding: 60px 20px; color: var(--text2); }
 .empty .icon { font-size: 44px; margin-bottom: 12px; opacity: 0.6; }
 .empty div:last-child { font-size: 13px; margin-top: 8px; color: var(--text3); }
+.empty-action {
+  margin-top: 16px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform var(--transition), background var(--transition);
+}
+.empty-action:hover { background: var(--accent2); transform: translateY(-1px); }
 
 /* ═══ LOADING ═══ */
 .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--bg3); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; }
@@ -479,9 +492,10 @@ video { max-width: 100%; max-height: 100vh; max-height: 100dvh; width: 100%; }
     <div class="section-title">📁 Все торренты <span class="spinner" id="loadingSpinner"></span></div>
     <div class="grid" id="allGrid"></div>
     <div class="empty" id="emptyState" style="display:none">
-      <div class="icon">🎞️</div>
-      <div>Нет добавленных торрентов</div>
-      <div>Добавьте через Lampa или вставьте magnet-ссылку</div>
+      <div class="icon" id="emptyIcon">🎞️</div>
+      <div id="emptyTitle">Нет добавленных торрентов</div>
+      <div id="emptyText">Добавьте через Lampa или вставьте magnet-ссылку</div>
+      <button class="empty-action" id="emptyAction" onclick="loadTorrents()" style="display:none">Повторить</button>
     </div>
   </div>
 </main>
@@ -535,6 +549,7 @@ let plyr = null;
 let saveTimer = null;
 let searchTimer = null;
 let allTorrents = [];
+let lastStatus = null;
 
 // ═══ PWA Service Worker ═══
 if ("serviceWorker" in navigator) {
@@ -592,11 +607,24 @@ async function loadTorrents() {
   try {
     const r = await fetch(`${API}/api/torrents`);
     allTorrents = await r.json();
+    lastStatus = allTorrents.length === 0 ? await fetchStatus() : null;
     document.getElementById("loadingSpinner").style.display = "none";
     renderAll();
   } catch(e) {
+    lastStatus = await fetchStatus();
     document.getElementById("loadingSpinner").style.display = "none";
+    renderAll();
     showToast("Ошибка загрузки");
+  }
+}
+
+async function fetchStatus() {
+  try {
+    const r = await fetch(`${API}/api/status`);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (e) {
+    return null;
   }
 }
 
@@ -614,9 +642,30 @@ function renderAll() {
 
   const allGrid = document.getElementById("allGrid");
   const emptyState = document.getElementById("emptyState");
+  const emptyIcon = document.getElementById("emptyIcon");
+  const emptyTitle = document.getElementById("emptyTitle");
+  const emptyText = document.getElementById("emptyText");
+  const emptyAction = document.getElementById("emptyAction");
   if (allTorrents.length === 0) {
     allGrid.innerHTML = "";
     emptyState.style.display = "block";
+    emptyAction.style.display = "none";
+    if (lastStatus?.torrserver?.ok === false) {
+      emptyIcon.textContent = "⚠️";
+      emptyTitle.textContent = "Нет подключения к TorrServer";
+      emptyText.textContent = lastStatus?.torrserver?.error
+        ? `Проверьте TorrServer (${lastStatus.torrserver.url}): ${lastStatus.torrserver.error}`
+        : "Проверьте настройки подключения и повторите попытку.";
+      emptyAction.style.display = "inline-flex";
+    } else if (lastStatus?.torrserver?.ok === true) {
+      emptyIcon.textContent = "🎞️";
+      emptyTitle.textContent = "Библиотека пока пуста";
+      emptyText.textContent = "TorrServer доступен, но сейчас в библиотеке нет торрентов. Добавьте magnet-ссылку или используйте поиск.";
+    } else {
+      emptyIcon.textContent = "🎞️";
+      emptyTitle.textContent = "Нет добавленных торрентов";
+      emptyText.textContent = "Добавьте через Lampa или вставьте magnet-ссылку";
+    }
   } else {
     emptyState.style.display = "none";
     allGrid.innerHTML = allTorrents.map(t => cardHTML(t, false)).join("");
@@ -897,6 +946,11 @@ async function doSearch(q) {
     const data = await r.json();
     const results = data.Results || [];
     countEl.textContent = results.length;
+
+    if (data.ok === false) {
+      listDiv.innerHTML = '<div class="empty"><div class="icon">⚠️</div><div>Сервис поиска недоступен</div><div>Проверьте jacred или повторите попытку позже</div></div>';
+      return;
+    }
 
     if (results.length === 0) {
       listDiv.innerHTML = '<div class="empty"><div class="icon">🔍</div><div>Ничего не найдено</div></div>';

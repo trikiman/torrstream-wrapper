@@ -2,6 +2,7 @@
 """TorrStream — Flask backend for cross-device torrent streaming with sync."""
 
 import json
+import logging
 import os
 import time
 from pathlib import Path
@@ -10,13 +11,13 @@ import requests
 from flask import Flask, Response, jsonify, redirect, request, send_from_directory, stream_with_context
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
+app.logger.setLevel(logging.INFO)
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 TORRSERVER = os.getenv("TORRSERVER_URL", "http://127.0.0.1:8090")
-TORRSERVER_AUTH = (
-    os.getenv("TORRSERVER_USER", "admin"),
-    os.getenv("TORRSERVER_PASS", "122662Rus"),
-)
+TORRSERVER_USER = os.getenv("TORRSERVER_USER", "")
+TORRSERVER_PASS = os.getenv("TORRSERVER_PASS", "")
+TORRSERVER_AUTH = (TORRSERVER_USER, TORRSERVER_PASS) if (TORRSERVER_USER or TORRSERVER_PASS) else None
 JACRED_URL = os.getenv("JACRED_URL", "https://jacred.xyz")
 JACRED_KEY = os.getenv("JACRED_KEY", "")
 POSITIONS_FILE = Path(__file__).parent / "positions.json"
@@ -84,6 +85,19 @@ def ts_get(path, **kwargs):
         return None
 
 
+def ts_probe():
+    """Probe TorrServer reachability and basic library state."""
+    try:
+        r = requests.post(f"{TORRSERVER}/torrents", json={"action": "list"}, auth=TORRSERVER_AUTH, timeout=10)
+        r.raise_for_status()
+        data = r.json() if r.text.strip() else []
+        torrent_count = len(data) if isinstance(data, list) else 0
+        return {"ok": True, "torrent_count": torrent_count, "error": ""}
+    except Exception as e:
+        app.logger.warning("TorrServer probe failed: %s", e)
+        return {"ok": False, "torrent_count": 0, "error": str(e)}
+
+
 def get_viewed(torrent_hash):
     """Get list of viewed file indices from TorrServer."""
     result = ts_post("/viewed", {"action": "list", "hash": torrent_hash})
@@ -146,6 +160,22 @@ def list_torrents():
         enriched.append(t)
 
     return jsonify(enriched)
+
+
+@app.route("/api/status")
+def status():
+    """Lightweight diagnostics for the wrapper shell."""
+    return jsonify({
+        "torrserver": {
+            "url": TORRSERVER,
+            **ts_probe(),
+        },
+        "wrapper": {
+            "root": "/",
+            "manifest": "/manifest.json",
+            "service_worker": "/sw.js",
+        },
+    })
 
 
 @app.route("/api/files/<torrent_hash>")
@@ -349,7 +379,7 @@ def search():
     """Search via jacred.xyz."""
     q = request.args.get("q", "")
     if not q:
-        return jsonify({"Results": []})
+        return jsonify({"ok": True, "Results": []})
 
     try:
         params = {"search": q, "apikey": JACRED_KEY} if JACRED_KEY else {"search": q}
@@ -366,9 +396,10 @@ def search():
                         "Tracker": torrent.get("tracker", ""),
                         "MagnetUri": torrent.get("magnet", ""),
                     })
-        return jsonify({"Results": results})
-    except Exception:
-        return jsonify({"Results": []})
+        return jsonify({"ok": True, "Results": results})
+    except Exception as e:
+        app.logger.warning("Search provider failed: %s", e)
+        return jsonify({"ok": False, "Results": [], "error": str(e)})
 
 
 # ─── Main ────────────────────────────────────────────────────────────────────
