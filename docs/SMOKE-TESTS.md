@@ -178,6 +178,10 @@ At minimum confirm that:
 - the manifest loads
 - the service worker registers from the expected path
 
+Expected after the current path normalization work:
+- root deployment should load `manifest.json` and `sw.js` without `/app/` 404s
+- `/app/` reverse-proxy deployment should also continue to work because the asset paths are relative
+
 ## Current Gaps
 
 - This project still has no automated test suite

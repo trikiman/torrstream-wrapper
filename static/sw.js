@@ -1,8 +1,11 @@
 // TorrStream Service Worker — offline shell caching
-const CACHE_NAME = "torrstream-v1";
+const CACHE_NAME = "torrstream-v2";
+const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, "");
+const withBase = (path) => `${SCOPE_PATH}${path}` || path;
+const API_PREFIX = withBase("/api/");
 const SHELL_ASSETS = [
-  "/app/",
-  "/app/static/icons/icon-512.png",
+  withBase("/") || "/",
+  withBase("/static/icons/icon-512.png"),
   "https://cdn.plyr.io/3.7.8/plyr.css",
   "https://cdn.plyr.io/3.7.8/plyr.polyfilled.js",
 ];
@@ -29,7 +32,7 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
 
   // Network-first for API calls and streams
-  if (url.pathname.startsWith("/app/api/")) {
+  if (url.pathname.startsWith(API_PREFIX)) {
     e.respondWith(
       fetch(e.request).catch(() => caches.match(e.request))
     );

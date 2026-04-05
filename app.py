@@ -109,6 +109,11 @@ def manifest():
     return send_from_directory("static", "manifest.json")
 
 
+@app.route("/favicon.ico")
+def favicon():
+    return send_from_directory("static/icons", "icon-512.png", mimetype="image/png")
+
+
 @app.route("/sw.js")
 def service_worker():
     return send_from_directory("static", "sw.js", mimetype="application/javascript")

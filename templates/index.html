@@ -6,10 +6,12 @@
 <title>TorrStream</title>
 <meta name="description" content="Personal streaming with cross-device sync">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="TorrStream">
-<link rel="apple-touch-icon" href="/app/static/icons/icon-512.png">
-<link rel="manifest" href="/app/manifest.json">
+<link rel="icon" href="static/icons/icon-512.png" type="image/png">
+<link rel="apple-touch-icon" href="static/icons/icon-512.png">
+<link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#e50914">
 <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css">
 <style>
@@ -503,7 +505,7 @@ video { max-width: 100%; max-height: 100vh; max-height: 100dvh; width: 100%; }
     <button class="player-next-btn" id="playerNextBtn" onclick="playNextEpisode()" style="display:none">Далее →</button>
   </div>
   <div class="video-wrap">
-    <video id="player" controls playsinline></video>
+    <video id="player" controls playsinline webkit-playsinline x-webkit-airplay="allow" preload="metadata"></video>
   </div>
 </div>
 
@@ -536,7 +538,7 @@ let allTorrents = [];
 
 // ═══ PWA Service Worker ═══
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/app/sw.js").catch(() => {});
+  navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 
 // ═══ Theme ═══

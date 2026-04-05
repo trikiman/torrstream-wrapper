@@ -57,18 +57,14 @@ The wrapper does not replace TorrServer. It reads library state from TorrServer 
 
 ### 1. Reverse Proxy Under `/app/`
 
-This is the topology most aligned with the current frontend asset assumptions.
+This topology is supported.
 
 Why:
-- `templates/index.html` currently references:
-  - `/app/static/icons/icon-512.png`
-  - `/app/manifest.json`
-- `static/sw.js` treats `/app/api/` as the API prefix
-- `static/manifest.json` uses:
-  - `start_url: /app/`
-  - `scope: /app/`
+- `templates/index.html` now uses relative asset links
+- `static/manifest.json` uses relative `start_url`, `scope`, and icon paths
+- `static/sw.js` derives its API prefix from the service-worker registration scope
 
-If the app is reverse-proxied under `/app/`, those paths remain coherent.
+If the app is reverse-proxied under `/app/`, the frontend assets resolve under `/app/` automatically.
 
 Typical shape:
 
@@ -81,18 +77,13 @@ browser
 
 ### 2. Direct-Root Serving
 
-The Flask app itself serves routes at root:
+The Flask app also serves correctly at root:
 - `/`
 - `/manifest.json`
 - `/sw.js`
 - `/api/*`
 
-So root-path serving is possible at the backend level, but the current frontend files are not fully normalized for it.
-
-Current constraint:
-- the HTML, manifest, and service worker still contain `/app/` assumptions
-
-That means a direct-root deployment should be treated as requiring path cleanup before it is considered canonical.
+The frontend now uses relative shell asset paths, so root-path deployments do not require a separate `/app/` rewrite layer.
 
 ## Operational Notes
 
