@@ -36,6 +36,7 @@ A torrent added once should be easy to find, play, and resume from any device th
 - The frontend is primarily a single monolithic template in `templates/index.html`.
 - Persistent resume state is stored in local `positions.json`.
 - The repo contains a legacy duplicate root `index.html`.
+- Operational runtime and deployment guidance lives in `docs/DEPLOYMENT.md`.
 - Current live infrastructure has direct TorrServer access on EC2, while this wrapper repo remains a separate application codebase.
 - No automated test suite or dependency manifest is present yet.
 
