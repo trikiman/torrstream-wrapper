@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TorrStream</title>
+<link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css">
+<style>
+:root {
+  --bg: #141414;
+  --bg2: #1f1f1f;
+  --bg3: #2a2a2a;
+  --text: #ffffff;
+  --text2: #aaaaaa;
+  --accent: #e50914;
+  --accent2: #b81d24;
+  --card-w: 180px;
+  --radius: 8px;
+}
+.light {
+  --bg: #f0f0f0;
+  --bg2: #ffffff;
+  --bg3: #e0e0e0;
+  --text: #111111;
+  --text2: #555555;
+  --accent: #e50914;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; transition: background 0.3s, color 0.3s; }
+
+/* NAV */
+nav { display: flex; align-items: center; padding: 14px 24px; background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent); position: sticky; top: 0; z-index: 100; gap: 16px; backdrop-filter: blur(4px); }
+.logo { font-size: 22px; font-weight: 800; color: var(--accent); letter-spacing: -0.5px; flex-shrink: 0; }
+.search-wrap { flex: 1; max-width: 500px; position: relative; }
+.search-wrap input { width: 100%; padding: 9px 16px 9px 40px; border-radius: 20px; border: 1px solid var(--bg3); background: var(--bg2); color: var(--text); font-size: 14px; outline: none; transition: border 0.2s; }
+.search-wrap input:focus { border-color: var(--accent); }
+.search-wrap .icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text2); font-size: 16px; }
+.nav-right { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.theme-btn { background: var(--bg3); border: none; color: var(--text); padding: 7px 12px; border-radius: 20px; cursor: pointer; font-size: 14px; transition: background 0.2s; }
+.theme-btn:hover { background: var(--accent); color: white; }
+.add-btn { background: var(--accent); border: none; color: white; padding: 7px 14px; border-radius: 20px; cursor: pointer; font-size: 14px; font-weight: 600; transition: background 0.2s; }
+.add-btn:hover { background: var(--accent2); }
+
+/* MAIN */
+main { padding: 0 24px 60px; }
+.section { margin-top: 32px; }
+.section-title { font-size: 20px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+.section-title span { font-size: 13px; color: var(--text2); font-weight: 400; }
+
+/* GRID */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--card-w), 1fr)); gap: 16px; }
+
+/* CARD */
+.card { background: var(--bg2); border-radius: var(--radius); overflow: hidden; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; position: relative; }
+.card:hover { transform: translateY(-4px); box-shadow: 0 12px 32px rgba(0,0,0,0.5); }
+.card-poster { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; background: var(--bg3); }
+.card-poster-placeholder { width: 100%; aspect-ratio: 2/3; background: var(--bg3); display: flex; align-items: center; justify-content: center; font-size: 40px; }
+.card-info { padding: 10px; }
+.card-title { font-size: 13px; font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card-meta { font-size: 11px; color: var(--text2); margin-top: 4px; }
+.progress-bar { height: 3px; background: var(--bg3); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.3s; }
+.card-badge { position: absolute; top: 8px; right: 8px; background: var(--accent); color: white; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+
+/* SEARCH RESULTS */
+.search-results { display: none; }
+.search-results.active { display: block; }
+.result-item { display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--bg2); border-radius: var(--radius); margin-bottom: 8px; cursor: pointer; transition: background 0.2s; }
+.result-item:hover { background: var(--bg3); }
+.result-info { flex: 1; }
+.result-title { font-size: 14px; font-weight: 600; }
+.result-meta { font-size: 12px; color: var(--text2); margin-top: 3px; }
+.result-add { background: var(--accent); border: none; color: white; padding: 6px 14px; border-radius: 14px; cursor: pointer; font-size: 13px; font-weight: 600; white-space: nowrap; transition: background 0.2s; }
+.result-add:hover { background: var(--accent2); }
+.result-add.added { background: #2ecc71; }
+
+/* PLAYER OVERLAY */
+.player-overlay { display: none; position: fixed; inset: 0; background: #000; z-index: 1000; flex-direction: column; }
+.player-overlay.active { display: flex; }
+.player-header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; background: rgba(0,0,0,0.8); position: absolute; top: 0; left: 0; right: 0; z-index: 10; }
+.player-back { background: none; border: none; color: white; font-size: 22px; cursor: pointer; padding: 4px 8px; border-radius: 6px; transition: background 0.2s; }
+.player-back:hover { background: rgba(255,255,255,0.1); }
+.player-title { font-size: 16px; font-weight: 600; color: white; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player-file-select { background: var(--bg3); border: none; color: var(--text); padding: 6px 10px; border-radius: 6px; font-size: 13px; max-width: 200px; }
+.video-wrap { flex: 1; display: flex; align-items: center; justify-content: center; background: #000; }
+video { max-width: 100%; max-height: 100vh; width: 100%; }
+
+/* ADD MAGNET MODAL */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 2000; align-items: center; justify-content: center; }
+.modal-overlay.active { display: flex; }
+.modal { background: var(--bg2); border-radius: 12px; padding: 24px; width: 90%; max-width: 480px; }
+.modal h3 { font-size: 18px; margin-bottom: 16px; }
+.modal input, .modal textarea { width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--bg3); background: var(--bg); color: var(--text); font-size: 14px; margin-bottom: 12px; outline: none; }
+.modal input:focus, .modal textarea:focus { border-color: var(--accent); }
+.modal-btns { display: flex; gap: 10px; justify-content: flex-end; }
+.modal-btns button { padding: 9px 20px; border-radius: 8px; border: none; cursor: pointer; font-size: 14px; font-weight: 600; }
+.btn-cancel { background: var(--bg3); color: var(--text); }
+.btn-ok { background: var(--accent); color: white; }
+
+/* EMPTY STATE */
+.empty { text-align: center; padding: 60px 20px; color: var(--text2); }
+.empty .icon { font-size: 48px; margin-bottom: 12px; }
+
+/* LOADING */
+.spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid var(--bg3); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* TOAST */
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--bg2); color: var(--text); padding: 10px 20px; border-radius: 20px; font-size: 14px; z-index: 9999; box-shadow: 0 4px 20px rgba(0,0,0,0.4); opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+.toast.show { opacity: 1; }
+
+@media (max-width: 600px) {
+  :root { --card-w: 140px; }
+  nav { padding: 10px 14px; }
+  main { padding: 0 14px 60px; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">🎬 TorrStream</div>
+  <div class="search-wrap">
+    <span class="icon">🔍</span>
+    <input type="text" id="searchInput" placeholder="Поиск фильмов и сериалов..." autocomplete="off">
+  </div>
+  <div class="nav-right">
+    <button class="theme-btn" onclick="toggleTheme()" id="themeBtn">☀️</button>
+    <button class="add-btn" onclick="openAddModal()">+ Magnet</button>
+  </div>
+</nav>
+
+<main>
+  <!-- Search results -->
+  <div class="section search-results" id="searchResults">
+    <div class="section-title">Результаты поиска <span id="searchCount"></span></div>
+    <div id="searchList"></div>
+  </div>
+
+  <!-- Continue watching -->
+  <div class="section" id="continueSection" style="display:none">
+    <div class="section-title">▶️ Продолжить просмотр</div>
+    <div class="grid" id="continueGrid"></div>
+  </div>
+
+  <!-- All torrents -->
+  <div class="section">
+    <div class="section-title">📁 Все торренты <span id="loadingSpinner" class="spinner"></span></div>
+    <div class="grid" id="allGrid"></div>
+    <div class="empty" id="emptyState" style="display:none">
+      <div class="icon">🎞️</div>
+      <div>Нет добавленных торрентов</div>
+      <div style="font-size:13px;margin-top:8px">Добавьте через Lampa или вставьте magnet-ссылку</div>
+    </div>
+  </div>
+</main>
+
+<!-- Player -->
+<div class="player-overlay" id="playerOverlay">
+  <div class="player-header">
+    <button class="player-back" onclick="closePlayer()">←</button>
+    <div class="player-title" id="playerTitle"></div>
+    <select class="player-file-select" id="fileSelect" onchange="switchFile(this.value)" style="display:none"></select>
+  </div>
+  <div class="video-wrap">
+    <video id="player" controls playsinline></video>
+  </div>
+</div>
+
+<!-- Add magnet modal -->
+<div class="modal-overlay" id="addModal">
+  <div class="modal">
+    <h3>Добавить торрент</h3>
+    <input type="text" id="magnetInput" placeholder="magnet:?xt=urn:btih:... или хеш">
+    <input type="text" id="titleInput" placeholder="Название (необязательно)">
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="closeAddModal()">Отмена</button>
+      <button class="btn-ok" onclick="addTorrent()">Добавить</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
+<script>
+const API = "/app";
+let currentHash = null;
+let currentTorrent = null;
+let plyr = null;
+let saveTimer = null;
+let searchTimer = null;
+let allTorrents = [];
+
+// Theme
+const savedTheme = localStorage.getItem("theme") || "dark";
+if (savedTheme === "light") document.body.classList.add("light");
+document.getElementById("themeBtn").textContent = savedTheme === "light" ? "🌙" : "☀️";
+
+function toggleTheme() {
+  const isLight = document.body.classList.toggle("light");
+  localStorage.setItem("theme", isLight ? "light" : "dark");
+  document.getElementById("themeBtn").textContent = isLight ? "🌙" : "☀️";
+}
+
+// Toast
+function showToast(msg, duration = 2500) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), duration);
+}
+
+// Format size
+function fmtSize(bytes) {
+  if (!bytes) return "";
+  const gb = bytes / 1024 / 1024 / 1024;
+  if (gb >= 1) return gb.toFixed(1) + " GB";
+  return (bytes / 1024 / 1024).toFixed(0) + " MB";
+}
+
+// Format time
+function fmtTime(sec) {
+  if (!sec) return "";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h > 0) return `${h}ч ${m}м`;
+  return `${m}м`;
+}
+
+// Clean title (remove [LAMPA] prefix)
+function cleanTitle(title) {
+  return title.replace(/^\[LAMPA\]\s*/i, "").trim();
+}
+
+// Load torrents
+async function loadTorrents() {
+  try {
+    const r = await fetch(`${API}/api/torrents`);
+    allTorrents = await r.json();
+    document.getElementById("loadingSpinner").style.display = "none";
+    renderAll();
+  } catch(e) {
+    document.getElementById("loadingSpinner").style.display = "none";
+    showToast("Ошибка загрузки торрентов");
+  }
+}
+
+function renderAll() {
+  const continuing = allTorrents.filter(t => t.position > 30 && t.duration > 0 && (t.position / t.duration) < 0.95);
+  const continueSection = document.getElementById("continueSection");
+  const continueGrid = document.getElementById("continueGrid");
+
+  if (continuing.length > 0) {
+    continueSection.style.display = "block";
+    continueGrid.innerHTML = continuing.map(t => cardHTML(t, true)).join("");
+  } else {
+    continueSection.style.display = "none";
+  }
+
+  const allGrid = document.getElementById("allGrid");
+  const emptyState = document.getElementById("emptyState");
+  if (allTorrents.length === 0) {
+    allGrid.innerHTML = "";
+    emptyState.style.display = "block";
+  } else {
+    emptyState.style.display = "none";
+    allGrid.innerHTML = allTorrents.map(t => cardHTML(t, false)).join("");
+  }
+}
+
+function cardHTML(t, showProgress) {
+  const title = cleanTitle(t.title || "Без названия");
+  const pct = t.duration > 0 ? Math.round((t.position / t.duration) * 100) : 0;
+  const poster = t.poster ? `<img class="card-poster" src="${t.poster}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" loading="lazy"><div class="card-poster-placeholder" style="display:none">🎬</div>` : `<div class="card-poster-placeholder">🎬</div>`;
+  const badge = t.stat === 3 ? '<div class="card-badge">▶</div>' : '';
+  const progress = (showProgress && pct > 0) ? `<div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>` : "";
+  const meta = [fmtSize(t.torrent_size), pct > 0 ? `${pct}%` : ""].filter(Boolean).join(" · ");
+  return `<div class="card" onclick="openTorrent('${t.hash}')">
+    ${badge}${poster}
+    <div class="card-info">
+      <div class="card-title">${title}</div>
+      <div class="card-meta">${meta}</div>
+      ${progress}
+    </div>
+  </div>`;
+}
+
+// Open torrent → get files → play
+async function openTorrent(hash) {
+  currentHash = hash;
+  currentTorrent = allTorrents.find(t => t.hash === hash);
+  const title = cleanTitle(currentTorrent?.title || "");
+  document.getElementById("playerTitle").textContent = title;
+
+  // Get file list from TorrServer
+  try {
+    const r = await fetch(`${API}/api/files/${hash}`);
+    const data = await r.json();
+    const files = data.file_stats || [];
+    const fileSelect = document.getElementById("fileSelect");
+
+    if (files.length > 1) {
+      fileSelect.style.display = "block";
+      fileSelect.innerHTML = files.map((f, i) =>
+        `<option value="${i+1}">${f.path.split("/").pop()}</option>`
+      ).join("");
+      playFile(hash, files[0].path, 1);
+    } else {
+      fileSelect.style.display = "none";
+      const filename = files.length > 0 ? files[0].path.split("/").pop() : "video.mkv";
+      playFile(hash, filename, 1);
+    }
+  } catch(e) {
+    playFile(hash, "video.mkv", 1);
+  }
+
+  document.getElementById("playerOverlay").classList.add("active");
+  document.body.style.overflow = "hidden";
+}
+
+function switchFile(index) {
+  const files = document.getElementById("fileSelect").options;
+  const filename = files[index-1]?.text || "video.mkv";
+  playFile(currentHash, filename, parseInt(index));
+}
+
+async function playFile(hash, filename, index) {
+  const streamUrl = `${API}/api/stream/${encodeURIComponent(filename)}?hash=${hash}&index=${index}`;
+
+  if (!plyr) {
+    plyr = new Plyr("#player", {
+      controls: ["play", "progress", "current-time", "duration", "mute", "volume", "fullscreen"],
+      seekTime: 10,
+      keyboard: { focused: true, global: true }
+    });
+  }
+
+  const video = document.getElementById("player");
+  video.src = streamUrl;
+  video.load();
+
+  // Restore saved position
+  const posResp = await fetch(`${API}/api/position/${hash}`);
+  const pos = await posResp.json();
+
+  video.onloadedmetadata = () => {
+    if (pos.position > 10) {
+      video.currentTime = pos.position;
+      showToast(`Продолжаем с ${fmtTime(pos.position)}`);
+    }
+    video.play().catch(() => {});
+  };
+
+  // Save position every 10s
+  if (saveTimer) clearInterval(saveTimer);
+  saveTimer = setInterval(() => {
+    if (!video.paused && video.currentTime > 5) {
+      fetch(`${API}/api/position/${hash}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({position: Math.floor(video.currentTime), duration: Math.floor(video.duration || 0)})
+      });
+    }
+  }, 10000);
+
+  // Save on pause/close
+  video.onpause = () => {
+    if (video.currentTime > 5) {
+      fetch(`${API}/api/position/${hash}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({position: Math.floor(video.currentTime), duration: Math.floor(video.duration || 0)})
+      });
+    }
+  };
+}
+
+function closePlayer() {
+  const video = document.getElementById("player");
+  if (saveTimer) clearInterval(saveTimer);
+  if (video.currentTime > 5) {
+    fetch(`${API}/api/position/${currentHash}`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({position: Math.floor(video.currentTime), duration: Math.floor(video.duration || 0)})
+    });
+  }
+  video.pause();
+  video.src = "";
+  document.getElementById("playerOverlay").classList.remove("active");
+  document.body.style.overflow = "";
+  loadTorrents(); // refresh progress bars
+}
+
+// Search
+const searchInput = document.getElementById("searchInput");
+searchInput.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  const q = searchInput.value.trim();
+  if (q.length < 2) {
+    document.getElementById("searchResults").classList.remove("active");
+    return;
+  }
+  searchTimer = setTimeout(() => doSearch(q), 600);
+});
+
+async function doSearch(q) {
+  const resultsDiv = document.getElementById("searchResults");
+  const listDiv = document.getElementById("searchList");
+  const countEl = document.getElementById("searchCount");
+  resultsDiv.classList.add("active");
+  listDiv.innerHTML = '<div style="padding:20px;text-align:center"><div class="spinner"></div></div>';
+  countEl.textContent = "";
+
+  try {
+    const r = await fetch(`${API}/api/search?q=${encodeURIComponent(q)}`);
+    const data = await r.json();
+    const results = data.Results || [];
+    countEl.textContent = `(${results.length})`;
+
+    if (results.length === 0) {
+      listDiv.innerHTML = '<div class="empty"><div class="icon">🔍</div><div>Ничего не найдено</div></div>';
+      return;
+    }
+
+    listDiv.innerHTML = results.slice(0, 30).map((item, i) => {
+      const title = item.Title || "Без названия";
+      const tracker = item.Tracker || "";
+      const size = fmtSize(item.Size);
+      const seeds = item.Seeders || 0;
+      const meta = [tracker, size, seeds > 0 ? `${seeds} сидов` : ""].filter(Boolean).join(" · ");
+      return `<div class="result-item">
+        <div class="result-info">
+          <div class="result-title">${title}</div>
+          <div class="result-meta">${meta}</div>
+        </div>
+        <button class="result-add" id="btn-${i}" onclick="addFromSearch(${i}, '${(item.MagnetUri||"").replace(/'/g,"\\'")}', '${title.replace(/'/g,"\\'")}')">
+          + Добавить
+        </button>
+      </div>`;
+    }).join("");
+  } catch(e) {
+    listDiv.innerHTML = '<div class="empty"><div class="icon">⚠️</div><div>Ошибка поиска</div></div>';
+  }
+}
+
+async function addFromSearch(i, magnet, title) {
+  const btn = document.getElementById(`btn-${i}`);
+  btn.textContent = "...";
+  btn.disabled = true;
+  try {
+    const r = await fetch(`${API}/api/add`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({link: magnet, title})
+    });
+    const d = await r.json();
+    if (d.ok) {
+      btn.textContent = "✓ Добавлен";
+      btn.classList.add("added");
+      showToast("Торрент добавлен!");
+      loadTorrents();
+    } else {
+      btn.textContent = "Ошибка";
+    }
+  } catch(e) {
+    btn.textContent = "Ошибка";
+  }
+}
+
+// Add magnet modal
+function openAddModal() {
+  document.getElementById("addModal").classList.add("active");
+  document.getElementById("magnetInput").focus();
+}
+function closeAddModal() {
+  document.getElementById("addModal").classList.remove("active");
+  document.getElementById("magnetInput").value = "";
+  document.getElementById("titleInput").value = "";
+}
+async function addTorrent() {
+  const link = document.getElementById("magnetInput").value.trim();
+  const title = document.getElementById("titleInput").value.trim();
+  if (!link) { showToast("Введите magnet-ссылку"); return; }
+  try {
+    const r = await fetch(`${API}/api/add`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({link, title})
+    });
+    const d = await r.json();
+    if (d.ok) { showToast("Торрент добавлен!"); closeAddModal(); loadTorrents(); }
+    else showToast("Ошибка добавления");
+  } catch(e) { showToast("Ошибка соединения"); }
+}
+
+// Close search when clicking outside
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".search-wrap") && !e.target.closest("#searchResults")) {
+    document.getElementById("searchResults").classList.remove("active");
+    searchInput.value = "";
+  }
+});
+
+// Close modal on overlay click
+document.getElementById("addModal").addEventListener("click", (e) => {
+  if (e.target === document.getElementById("addModal")) closeAddModal();
+});
+
+// Keyboard shortcuts
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    if (document.getElementById("playerOverlay").classList.contains("active")) closePlayer();
+    if (document.getElementById("addModal").classList.contains("active")) closeAddModal();
+  }
+});
+
+// Init
+loadTorrents();
+setInterval(loadTorrents, 30000); // refresh every 30s
+</script>
+</body>
+</html>

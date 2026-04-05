@@ -1,0 +1,8 @@
+key.pem
+second key.pem
+*.pem
+vectors.db
+repomix-output.xml
+__pycache__/
+*.pyc
+.DS_Store
