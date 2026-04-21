@@ -8,6 +8,8 @@ It provides a browser UI for:
 - streaming and downloading files
 - syncing watch progress across devices
 
+The wrapper now exposes diagnostics-first endpoints and UI states so an empty library, an unreachable TorrServer, and an unavailable search provider are distinguishable.
+
 ## Project Layout
 
 - `app.py` - Flask backend and API routes

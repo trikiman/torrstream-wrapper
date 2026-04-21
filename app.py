@@ -4,6 +4,7 @@
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 
@@ -98,6 +99,24 @@ def ts_probe():
         return {"ok": False, "torrent_count": 0, "error": str(e)}
 
 
+def normalize_torrent_link(raw_link):
+    """Accept magnet links, HTTP URLs, and bare BTIH hashes."""
+    link = (raw_link or "").strip()
+    if not link:
+        return None, "no link"
+
+    if link.startswith("magnet:?"):
+        return link, ""
+
+    if link.startswith("http://") or link.startswith("https://"):
+        return link, ""
+
+    if re.fullmatch(r"[A-Fa-f0-9]{40}", link) or re.fullmatch(r"[A-Z2-7a-z2-7]{32}", link):
+        return f"magnet:?xt=urn:btih:{link}", ""
+
+    return None, "invalid link"
+
+
 def get_viewed(torrent_hash):
     """Get list of viewed file indices from TorrServer."""
     result = ts_post("/viewed", {"action": "list", "hash": torrent_hash})
@@ -138,7 +157,16 @@ def list_torrents():
     """List all torrents with merged position + viewed data."""
     result = ts_post("/torrents", {"action": "list"})
     if result is None:
-        return jsonify([])
+        probe = ts_probe()
+        return jsonify({
+            "ok": False,
+            "items": [],
+            "error": probe.get("error", "torrserver error"),
+            "diagnostics": {
+                **probe,
+                "state": "upstream_unavailable",
+            },
+        })
 
     torrents = result if isinstance(result, list) else []
     positions = load_positions()
@@ -159,21 +187,37 @@ def list_torrents():
         t["updated"] = pos_data.get("updated", 0)
         enriched.append(t)
 
-    return jsonify(enriched)
+    return jsonify({
+        "ok": True,
+        "items": enriched,
+        "diagnostics": {
+            "ok": True,
+            "torrent_count": len(enriched),
+            "state": "empty" if not enriched else "ready",
+            "error": "",
+        },
+    })
 
 
 @app.route("/api/status")
 def status():
     """Lightweight diagnostics for the wrapper shell."""
+    positions = load_positions()
     return jsonify({
         "torrserver": {
             "url": TORRSERVER,
             **ts_probe(),
         },
+        "search": {
+            "url": JACRED_URL,
+            "api_key_configured": bool(JACRED_KEY),
+        },
         "wrapper": {
             "root": "/",
             "manifest": "/manifest.json",
             "service_worker": "/sw.js",
+            "auth_configured": bool(TORRSERVER_AUTH),
+            "position_entries": len(positions),
         },
     })
 
@@ -183,7 +227,21 @@ def list_files(torrent_hash):
     """Get file list for a torrent, enriched with viewed + position data."""
     result = ts_post("/torrents", {"action": "get", "hash": torrent_hash})
     if result is None:
-        return jsonify({"file_stats": []})
+        probe = ts_probe()
+        return jsonify({
+            "ok": False,
+            "error": probe.get("error") or "torrent not found or file lookup failed",
+            "file_stats": [],
+            "last_file_index": 0,
+            "viewed_indices": [],
+            "diagnostics": {
+                **probe,
+                "state": "upstream_unavailable" if not probe.get("ok") else "file_lookup_failed",
+                "playable_count": 0,
+                "total_file_count": 0,
+                "has_playable_files": False,
+            },
+        })
 
     file_stats = result.get("file_stats") or []
     positions = load_positions()
@@ -219,9 +277,18 @@ def list_files(torrent_hash):
             video_files.append(fs)
 
     return jsonify({
-        "file_stats": video_files if video_files else file_stats,
+        "ok": True,
+        "file_stats": video_files,
         "last_file_index": pos_data.get("last_file_index", 0),
         "viewed_indices": list(viewed_indices),
+        "diagnostics": {
+            "ok": True,
+            "state": "no_playable_files" if not video_files and file_stats else "ready",
+            "playable_count": len(video_files),
+            "total_file_count": len(file_stats),
+            "has_playable_files": bool(video_files),
+            "error": "",
+        },
     })
 
 
@@ -349,18 +416,18 @@ def download_file(filename):
 def add_torrent():
     """Add a torrent by magnet link or hash."""
     body = request.get_json(force=True, silent=True) or {}
-    link = body.get("link", "")
+    link, link_error = normalize_torrent_link(body.get("link", ""))
     title = body.get("title", "")
     poster = body.get("poster", "")
 
     if not link:
-        return jsonify({"ok": False, "error": "no link"})
+        return jsonify({"ok": False, "error": link_error or "no link"})
 
     payload = {"action": "add", "link": link, "title": title, "poster": poster, "save_to_db": True}
     result = ts_post("/torrents", payload)
     if result is not None:
-        return jsonify({"ok": True, "hash": result.get("hash", "")})
-    return jsonify({"ok": False, "error": "torrserver error"})
+        return jsonify({"ok": True, "hash": result.get("hash", ""), "normalized_link": link})
+    return jsonify({"ok": False, "error": "torrserver add failed", "normalized_link": link})
 
 
 @app.route("/api/remove/<torrent_hash>", methods=["DELETE"])
@@ -369,9 +436,12 @@ def remove_torrent(torrent_hash):
     result = ts_post("/torrents", {"action": "rem", "hash": torrent_hash})
     # Also clean up positions
     positions = load_positions()
+    had_position = torrent_hash in positions
     positions.pop(torrent_hash, None)
     save_positions(positions)
-    return jsonify({"ok": True})
+    if result is None:
+        return jsonify({"ok": False, "error": "torrserver remove failed", "removed_positions": had_position})
+    return jsonify({"ok": True, "removed_positions": had_position})
 
 
 @app.route("/api/search")

@@ -74,8 +74,10 @@ curl http://127.0.0.1:5000/api/torrents
 
 Expected:
 - valid JSON
-- response is an array
-- if TorrServer is reachable and has data, items should include hashes/titles
+- `ok` is present
+- `items` is an array
+- `diagnostics.state` distinguishes `ready`, `empty`, and failure-style states
+- if TorrServer is reachable and has data, `items` should include hashes/titles
 
 ### Status Endpoint
 
@@ -87,6 +89,7 @@ Expected:
 - valid JSON
 - `torrserver.ok` distinguishes reachable-vs-unreachable upstream state
 - `torrserver.torrent_count` indicates whether the upstream library is simply empty
+- `wrapper.position_entries` shows how many local resume records are currently stored
 
 ### Search Endpoint
 
@@ -97,6 +100,30 @@ curl "http://127.0.0.1:5000/api/search?q=test"
 Expected:
 - valid JSON with `Results`
 - if jacred is unavailable, response still returns JSON with `ok: false`
+
+### Invalid Add Request
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/add ^
+  -H "Content-Type: application/json" ^
+  -d "{\"link\":\"bad-input\"}"
+```
+
+Expected:
+- valid JSON
+- `ok: false`
+- explicit validation error such as `invalid link`
+
+### Remove Request
+
+```bash
+curl -X DELETE http://127.0.0.1:5000/api/remove/<TORRENT_HASH>
+```
+
+Expected:
+- valid JSON
+- explicit `ok` state
+- `removed_positions` indicates whether local resume state was cleared
 
 ## Real-Data Checks
 
@@ -114,8 +141,9 @@ curl "http://127.0.0.1:5000/api/files/<TORRENT_HASH>"
 
 Expected:
 - valid JSON
-- `file_stats` array present
-- video files listed when available
+- `ok` is present
+- `diagnostics.state` distinguishes `ready`, `no_playable_files`, `file_lookup_failed`, and upstream failure
+- `file_stats` contains playable files only
 
 ### Position Read
 
@@ -177,6 +205,8 @@ Verify:
 6. opening a torrent shows file choices
 7. playback starts for a real file
 8. seeking and returning updates resume position
+
+If the library is empty, verify the UI specifically says TorrServer is reachable but empty.
 
 ## Pathing Checks
 

@@ -169,6 +169,19 @@ main { padding: 0 20px 80px; }
 .card-info { padding: 10px 12px; }
 .card-title { font-size: 13px; font-weight: 600; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .card-meta { font-size: 11px; color: var(--text2); margin-top: 4px; }
+.card-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
+.card-delete {
+  background: transparent;
+  border: 1px solid var(--bg4);
+  color: var(--text2);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.card-delete:hover { background: rgba(229,9,20,0.12); border-color: var(--accent); color: var(--accent); }
 .progress-bar { height: 3px; background: var(--bg3); border-radius: 2px; margin-top: 8px; overflow: hidden; }
 .progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.5s ease; }
 .card-badge {
@@ -551,6 +564,27 @@ let searchTimer = null;
 let allTorrents = [];
 let lastStatus = null;
 
+function normalizeTorrentResponse(data) {
+  if (Array.isArray(data)) {
+    return {
+      ok: true,
+      items: data,
+      diagnostics: {
+        ok: true,
+        torrent_count: data.length,
+        state: data.length === 0 ? "empty" : "ready",
+        error: "",
+      },
+    };
+  }
+  return {
+    ok: data?.ok !== false,
+    items: data?.items || [],
+    diagnostics: data?.diagnostics || null,
+    error: data?.error || "",
+  };
+}
+
 // ═══ PWA Service Worker ═══
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
@@ -606,8 +640,9 @@ function isVideoFile(path) {
 async function loadTorrents() {
   try {
     const r = await fetch(`${API}/api/torrents`);
-    allTorrents = await r.json();
-    lastStatus = allTorrents.length === 0 ? await fetchStatus() : null;
+    const data = normalizeTorrentResponse(await r.json());
+    allTorrents = data.items;
+    lastStatus = data.diagnostics || (allTorrents.length === 0 ? await fetchStatus() : null);
     document.getElementById("loadingSpinner").style.display = "none";
     renderAll();
   } catch(e) {
@@ -674,6 +709,7 @@ function renderAll() {
 
 function cardHTML(t, showProgress) {
   const title = cleanTitle(t.title);
+  const safeTitle = title.replace(/'/g, "\\'");
   const pct = t.duration > 0 ? Math.round((t.position / t.duration) * 100) : 0;
   const poster = t.poster
     ? `<img class="card-poster" src="${t.poster}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" loading="lazy"><div class="card-poster-placeholder" style="display:none">🎬</div>`
@@ -689,8 +725,25 @@ function cardHTML(t, showProgress) {
       <div class="card-title">${title}</div>
       <div class="card-meta">${meta}</div>
       ${progress}
+      <div class="card-actions">
+        <button class="card-delete" onclick="event.stopPropagation();confirmRemoveTorrent('${t.hash}', '${safeTitle}')">Удалить</button>
+      </div>
     </div>
   </div>`;
+}
+
+function showEpisodeMessage(title, icon, message, subtext = "") {
+  document.getElementById("episodeTitle").textContent = title;
+  document.getElementById("episodeContinueBtn").style.display = "none";
+  document.getElementById("episodeGrid").innerHTML = `
+    <div class="empty" style="grid-column:1 / -1">
+      <div class="icon">${icon}</div>
+      <div>${message}</div>
+      ${subtext ? `<div>${subtext}</div>` : ""}
+    </div>
+  `;
+  document.getElementById("episodeOverlay").classList.add("active");
+  document.body.style.overflow = "hidden";
 }
 
 // ═══ Open Torrent → Episode Panel or Direct Play ═══
@@ -701,15 +754,37 @@ async function openTorrent(hash) {
   try {
     const r = await fetch(`${API}/api/files/${hash}`);
     const data = await r.json();
-    currentFiles = (data.file_stats || []).filter(f => isVideoFile(f.path));
+    currentFiles = data.file_stats || [];
     const lastIdx = data.last_file_index || 0;
+
+    if (data.ok === false) {
+      showEpisodeMessage(
+        cleanTitle(currentTorrent?.title),
+        "⚠️",
+        "Не удалось загрузить файлы торрента",
+        data.error || "Проверьте подключение к TorrServer и повторите попытку."
+      );
+      return;
+    }
+
+    if (!data.diagnostics?.has_playable_files) {
+      showEpisodeMessage(
+        cleanTitle(currentTorrent?.title),
+        "📼",
+        "Нет доступных видеофайлов",
+        data.diagnostics?.total_file_count
+          ? "Торрент загружен, но в нем нет файлов, которые можно воспроизвести прямо сейчас."
+          : "TorrServer не вернул данные о файлах для этого торрента."
+      );
+      return;
+    }
 
     if (currentFiles.length > 1) {
       // Series — show episode panel
       showEpisodePanel(hash, currentFiles, lastIdx, data.viewed_indices || []);
     } else {
       // Single file — play directly
-      const f = currentFiles[0] || { path: "video.mkv", id: 1 };
+      const f = currentFiles[0];
       playFile(hash, f.path, f.id || 1);
       document.getElementById("playerTitle").textContent = cleanTitle(currentTorrent?.title);
       document.getElementById("playerEpInfo").textContent = "";
@@ -718,10 +793,12 @@ async function openTorrent(hash) {
       document.body.style.overflow = "hidden";
     }
   } catch(e) {
-    playFile(hash, "video.mkv", 1);
-    document.getElementById("playerTitle").textContent = cleanTitle(currentTorrent?.title);
-    document.getElementById("playerOverlay").classList.add("active");
-    document.body.style.overflow = "hidden";
+    showEpisodeMessage(
+      cleanTitle(currentTorrent?.title),
+      "⚠️",
+      "Ошибка загрузки файлов",
+      "Не удалось получить данные о файлах. Повторите попытку позже."
+    );
   }
 }
 
@@ -998,9 +1075,13 @@ async function addFromSearch(i, magnet, title) {
       loadTorrents();
     } else {
       btn.textContent = "Ошибка";
+      btn.disabled = false;
+      showToast(d.error || "Ошибка добавления");
     }
   } catch(e) {
     btn.textContent = "Ошибка";
+    btn.disabled = false;
+    showToast("Ошибка соединения");
   }
 }
 
@@ -1017,7 +1098,7 @@ function closeAddModal() {
 async function addTorrent() {
   const link = document.getElementById("magnetInput").value.trim();
   const title = document.getElementById("titleInput").value.trim();
-  if (!link) { showToast("Введите magnet-ссылку"); return; }
+  if (!link) { showToast("Введите magnet-ссылку или хеш"); return; }
   try {
     const r = await fetch(`${API}/api/add`, {
       method: "POST",
@@ -1026,8 +1107,26 @@ async function addTorrent() {
     });
     const d = await r.json();
     if (d.ok) { showToast("Торрент добавлен!"); closeAddModal(); loadTorrents(); }
-    else showToast("Ошибка добавления");
+    else showToast(d.error || "Ошибка добавления");
   } catch(e) { showToast("Ошибка соединения"); }
+}
+
+async function confirmRemoveTorrent(hash, title) {
+  const confirmed = window.confirm(`Удалить торрент "${title}"?`);
+  if (!confirmed) return;
+
+  try {
+    const r = await fetch(`${API}/api/remove/${hash}`, { method: "DELETE" });
+    const d = await r.json();
+    if (d.ok) {
+      showToast(d.removed_positions ? "Торрент и позиция удалены" : "Торрент удален");
+      loadTorrents();
+      return;
+    }
+    showToast(d.error || "Ошибка удаления");
+  } catch (e) {
+    showToast("Ошибка соединения");
+  }
 }
 
 // ═══ Event Listeners ═══

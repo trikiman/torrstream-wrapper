@@ -17,7 +17,9 @@ The application is a Flask server that serves:
 - `/` -> `templates/index.html`
 - `/manifest.json` -> `static/manifest.json`
 - `/sw.js` -> `static/sw.js`
+- `/favicon.ico` -> `static/icons/icon-512.png`
 - `/api/torrents`
+- `/api/status`
 - `/api/files/<torrent_hash>`
 - `/api/position/<torrent_hash>` (`GET` and `POST`)
 - `/api/stream/<filename>`
@@ -110,5 +112,6 @@ At minimum verify:
 - `/` returns the UI shell
 - `/manifest.json` returns the manifest
 - `/sw.js` returns the service worker
-- `/api/torrents` reaches TorrServer
+- `/api/status` reflects upstream availability
+- `/api/torrents` returns structured library diagnostics
 - playback-related flows still work against a real TorrServer instance
