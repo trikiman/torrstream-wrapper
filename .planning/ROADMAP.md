@@ -7,7 +7,7 @@ This roadmap treats the existing wrapper as a brownfield codebase that already p
 ## Phases
 
 - [x] **Phase 1: Brownfield Baseline** - Replace stale docs with planning artifacts and operationally accurate project instructions. (completed 2026-04-05)
-- [ ] **Phase 2: Library and Management Hardening** - Verify and stabilize listing, file inspection, add, and remove flows.
+- [x] **Phase 2: Library and Management Hardening** - Verify and stabilize listing, file inspection, add, and remove flows. (completed 2026-04-21)
 - [ ] **Phase 3: Playback and Sync Hardening** - Verify and stabilize streaming, downloading, and per-file resume behavior.
 - [ ] **Phase 4: Discovery and Delivery Alignment** - Verify search, app-shell delivery, and deployment-path correctness.
 
@@ -38,9 +38,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: Verify and harden torrent listing and file inspection responses.
-- [ ] 02-02: Verify and harden add/remove flows plus local cleanup behavior.
-- [ ] 02-03: Improve integration-error visibility for catalog and management routes.
+- [x] 02-01: Verify and harden torrent listing and file inspection responses.
+- [x] 02-02: Verify and harden add/remove flows plus local cleanup behavior.
+- [x] 02-03: Improve integration-error visibility for catalog and management routes.
 
 ### Phase 3: Playback and Sync Hardening
 **Goal**: Make playback, downloading, and resume behavior reliable across the wrapper and TorrServer boundary.
@@ -80,6 +80,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Brownfield Baseline | 2/2 | Complete    | 2026-04-05 |
-| 2. Library and Management Hardening | 0/3 | Not started | - |
+| 2. Library and Management Hardening | 3/3 | Complete | 2026-04-21 |
 | 3. Playback and Sync Hardening | 0/3 | Not started | - |
 | 4. Discovery and Delivery Alignment | 0/3 | Not started | - |

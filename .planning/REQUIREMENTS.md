@@ -7,8 +7,8 @@
 
 ### Library
 
-- [ ] **LIBR-01**: User can list torrents from TorrServer through the wrapper API.
-- [ ] **LIBR-02**: User can inspect file choices for a torrent and see video files highlighted for playback.
+- [x] **LIBR-01**: User can list torrents from TorrServer through the wrapper API.
+- [x] **LIBR-02**: User can inspect file choices for a torrent and see video files highlighted for playback.
 
 ### Playback
 
@@ -22,8 +22,8 @@
 
 ### Management
 
-- [ ] **MGMT-01**: User can add a torrent from a magnet link or search result.
-- [ ] **MGMT-02**: User can remove a torrent and clear any saved local position state for it.
+- [x] **MGMT-01**: User can add a torrent from a magnet link or search result.
+- [x] **MGMT-02**: User can remove a torrent and clear any saved local position state for it.
 
 ### Discovery
 
@@ -65,10 +65,10 @@
 |-------------|-------|--------|
 | DELV-02 | Phase 1 | Complete |
 | QUAL-01 | Phase 1 | Complete |
-| LIBR-01 | Phase 2 | Pending |
-| LIBR-02 | Phase 2 | Pending |
-| MGMT-01 | Phase 2 | Pending |
-| MGMT-02 | Phase 2 | Pending |
+| LIBR-01 | Phase 2 | Complete |
+| LIBR-02 | Phase 2 | Complete |
+| MGMT-01 | Phase 2 | Complete |
+| MGMT-02 | Phase 2 | Complete |
 | PLAY-01 | Phase 3 | Pending |
 | PLAY-02 | Phase 3 | Pending |
 | SYNC-01 | Phase 3 | Pending |
