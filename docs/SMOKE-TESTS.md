@@ -165,10 +165,22 @@ curl -X POST "http://127.0.0.1:5000/api/position/<TORRENT_HASH>" ^
 Expected:
 - `{"ok": true}`
 - subsequent GET returns updated values
+- completion writes also report `viewed_sync_attempted` and `viewed_synced`
 
 ### Stream Probe
 
 Use a real file path segment from the selected torrent file entry.
+
+```bash
+curl "http://127.0.0.1:5000/api/stream/<FILENAME>?hash=<TORRENT_HASH>&index=<FILE_INDEX>&probe=1"
+```
+
+Expected:
+- valid JSON
+- `ok: true` when playback should be available
+- explicit error payload when playback is not available
+
+Then verify the real stream response:
 
 ```bash
 curl -I "http://127.0.0.1:5000/api/stream/<FILENAME>?hash=<TORRENT_HASH>&index=<FILE_INDEX>"
@@ -179,6 +191,17 @@ Expected:
 - `Accept-Ranges: bytes`
 
 ### Download Probe
+
+```bash
+curl "http://127.0.0.1:5000/api/download/<FILENAME>?hash=<TORRENT_HASH>&index=<FILE_INDEX>&probe=1"
+```
+
+Expected:
+- valid JSON
+- `ok: true` when download should be available
+- explicit error payload when download is not available
+
+Then verify the real download response:
 
 ```bash
 curl -I "http://127.0.0.1:5000/api/download/<FILENAME>?hash=<TORRENT_HASH>&index=<FILE_INDEX>"
@@ -207,6 +230,7 @@ Verify:
 8. seeking and returning updates resume position
 
 If the library is empty, verify the UI specifically says TorrServer is reachable but empty.
+If playback fails, verify the player shows an explicit error state instead of silently staying broken.
 
 ## Pathing Checks
 

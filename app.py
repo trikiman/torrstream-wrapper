@@ -56,13 +56,16 @@ def load_positions():
                         "updated": v.get("updated", 0),
                     }
             return migrated
-        except (json.JSONDecodeError, AttributeError):
+        except (json.JSONDecodeError, AttributeError) as e:
+            app.logger.warning("Failed to parse positions.json: %s", e)
             return {}
     return {}
 
 
 def save_positions(data):
-    POSITIONS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_file = POSITIONS_FILE.with_suffix(".tmp")
+    tmp_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_file.replace(POSITIONS_FILE)
 
 
 # ─── TorrServer helpers ──────────────────────────────────────────────────────
@@ -127,7 +130,33 @@ def get_viewed(torrent_hash):
 
 def set_viewed(torrent_hash, file_index):
     """Mark file as viewed in TorrServer (so Lampa sees it too)."""
-    ts_post("/viewed", {"action": "set", "hash": torrent_hash, "file_index": file_index})
+    result = ts_post("/viewed", {"action": "set", "hash": torrent_hash, "file_index": file_index})
+    return result is not None
+
+
+def probe_stream_access(filename, torrent_hash, file_index):
+    """Check whether a stream/download request would succeed without returning the media body."""
+    ts_url = f"{TORRSERVER}/stream/{filename}?link={torrent_hash}&index={file_index}&play"
+    try:
+        r = requests.get(ts_url, auth=TORRSERVER_AUTH, headers={"Range": "bytes=0-0"}, stream=True, timeout=20)
+        try:
+            content_type = r.headers.get("Content-Type", "")
+            ok = r.status_code < 400
+            return {
+                "ok": ok,
+                "upstream_status": r.status_code,
+                "content_type": content_type,
+                "error": "" if ok else f"upstream returned {r.status_code}",
+            }
+        finally:
+            r.close()
+    except Exception as e:
+        return {
+            "ok": False,
+            "upstream_status": 0,
+            "content_type": "",
+            "error": str(e),
+        }
 
 
 # ─── API Routes ──────────────────────────────────────────────────────────────
@@ -303,6 +332,7 @@ def get_position(torrent_hash):
     fp = files_pos.get(file_index, {})
 
     return jsonify({
+        "ok": True,
         "position": fp.get("position", 0),
         "duration": fp.get("duration", 0),
         "last_file_index": pos_data.get("last_file_index", int(file_index)),
@@ -313,29 +343,48 @@ def get_position(torrent_hash):
 def save_position(torrent_hash):
     """Save watch position. Body: {position, duration, file_index}."""
     body = request.get_json(force=True, silent=True) or {}
-    pos = body.get("position", 0)
-    dur = body.get("duration", 0)
-    file_index = str(body.get("file_index", 1))
+    try:
+        pos = max(0, int(body.get("position", 0)))
+        dur = max(0, int(body.get("duration", 0)))
+        file_index_int = int(body.get("file_index", 1))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "invalid position payload"}), 400
+
+    if file_index_int < 1:
+        return jsonify({"ok": False, "error": "invalid file_index"}), 400
+
+    file_index = str(file_index_int)
     now = int(time.time())
 
     positions = load_positions()
     if torrent_hash not in positions:
-        positions[torrent_hash] = {"files": {}, "last_file_index": int(file_index), "updated": now}
+        positions[torrent_hash] = {"files": {}, "last_file_index": file_index_int, "updated": now}
 
     entry = positions[torrent_hash]
     if "files" not in entry:
         entry["files"] = {}
 
     entry["files"][file_index] = {"position": pos, "duration": dur, "updated": now}
-    entry["last_file_index"] = int(file_index)
+    entry["last_file_index"] = file_index_int
     entry["updated"] = now
 
+    viewed_sync_attempted = dur > 0 and pos / dur > 0.95
+    viewed_synced = False
     # Auto-mark as viewed in TorrServer when > 95% watched
-    if dur > 0 and pos / dur > 0.95:
-        set_viewed(torrent_hash, int(file_index))
+    if viewed_sync_attempted:
+        viewed_synced = set_viewed(torrent_hash, file_index_int)
 
-    save_positions(positions)
-    return jsonify({"ok": True})
+    try:
+        save_positions(positions)
+    except Exception as e:
+        app.logger.warning("Failed to save positions: %s", e)
+        return jsonify({"ok": False, "error": "failed to save position"}), 500
+
+    return jsonify({
+        "ok": True,
+        "viewed_sync_attempted": viewed_sync_attempted,
+        "viewed_synced": viewed_synced,
+    })
 
 
 @app.route("/api/stream/<path:filename>")
@@ -343,14 +392,32 @@ def stream(filename):
     """Proxy video stream from TorrServer with range support."""
     torrent_hash = request.args.get("hash", "")
     file_index = request.args.get("index", "1")
+    probe_mode = request.args.get("probe") == "1"
+
+    if not torrent_hash:
+        return jsonify({"ok": False, "error": "missing hash"}), 400
 
     ts_url = f"{TORRSERVER}/stream/{filename}?link={torrent_hash}&index={file_index}&play"
     headers = {}
     if "Range" in request.headers:
         headers["Range"] = request.headers["Range"]
 
+    if probe_mode:
+        diagnostics = probe_stream_access(filename, torrent_hash, file_index)
+        status_code = 200 if diagnostics["ok"] else 502
+        return jsonify(diagnostics), status_code
+
     try:
         r = requests.get(ts_url, auth=TORRSERVER_AUTH, headers=headers, stream=True, timeout=30)
+        if r.status_code >= 400:
+            payload = {
+                "ok": False,
+                "error": f"stream request failed with {r.status_code}",
+                "upstream_status": r.status_code,
+                "content_type": r.headers.get("Content-Type", ""),
+            }
+            r.close()
+            return jsonify(payload), 502
 
         resp_headers = {
             "Content-Type": r.headers.get("Content-Type", "video/mp4"),
@@ -371,7 +438,7 @@ def stream(filename):
             headers=resp_headers,
         )
     except Exception as e:
-        return jsonify({"error": str(e)}), 502
+        return jsonify({"ok": False, "error": str(e), "upstream_status": 0}), 502
 
 
 @app.route("/api/download/<path:filename>")
@@ -379,14 +446,32 @@ def download_file(filename):
     """Stream video with Content-Disposition: attachment for download."""
     torrent_hash = request.args.get("hash", "")
     file_index = request.args.get("index", "1")
+    probe_mode = request.args.get("probe") == "1"
+
+    if not torrent_hash:
+        return jsonify({"ok": False, "error": "missing hash"}), 400
 
     ts_url = f"{TORRSERVER}/stream/{filename}?link={torrent_hash}&index={file_index}&play"
     headers = {}
     if "Range" in request.headers:
         headers["Range"] = request.headers["Range"]
 
+    if probe_mode:
+        diagnostics = probe_stream_access(filename, torrent_hash, file_index)
+        status_code = 200 if diagnostics["ok"] else 502
+        return jsonify(diagnostics), status_code
+
     try:
         r = requests.get(ts_url, auth=TORRSERVER_AUTH, headers=headers, stream=True, timeout=30)
+        if r.status_code >= 400:
+            payload = {
+                "ok": False,
+                "error": f"download request failed with {r.status_code}",
+                "upstream_status": r.status_code,
+                "content_type": r.headers.get("Content-Type", ""),
+            }
+            r.close()
+            return jsonify(payload), 502
 
         safe_filename = filename.split("/")[-1] if "/" in filename else filename
         resp_headers = {
@@ -409,7 +494,7 @@ def download_file(filename):
             headers=resp_headers,
         )
     except Exception as e:
-        return jsonify({"error": str(e)}), 502
+        return jsonify({"ok": False, "error": str(e), "upstream_status": 0}), 502
 
 
 @app.route("/api/add", methods=["POST"])

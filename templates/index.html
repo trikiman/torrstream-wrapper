@@ -746,6 +746,29 @@ function showEpisodeMessage(title, icon, message, subtext = "") {
   document.body.style.overflow = "hidden";
 }
 
+function showPlayerError(message, details = "") {
+  document.getElementById("playerTitle").textContent = cleanTitle(currentTorrent?.title);
+  document.getElementById("playerEpInfo").textContent = "";
+  document.getElementById("playerNextBtn").style.display = "none";
+  document.querySelector(".video-wrap").innerHTML = `
+    <div class="empty" style="padding:40px 24px;">
+      <div class="icon">⚠️</div>
+      <div>${message}</div>
+      ${details ? `<div>${details}</div>` : ""}
+    </div>
+  `;
+  document.getElementById("playerOverlay").classList.add("active");
+  document.body.style.overflow = "hidden";
+}
+
+function ensurePlayerElement() {
+  const existing = document.getElementById("player");
+  if (existing) return existing;
+  document.querySelector(".video-wrap").innerHTML = '<video id="player" controls playsinline webkit-playsinline x-webkit-airplay="allow" preload="metadata"></video>';
+  plyr = null;
+  return document.getElementById("player");
+}
+
 // ═══ Open Torrent → Episode Panel or Direct Play ═══
 async function openTorrent(hash) {
   currentHash = hash;
@@ -878,7 +901,16 @@ function continueEpisode() {
 function playEpisode(idx) {
   currentFileIndex = idx;
   const f = currentFiles.find(f => (f.id || 0) === idx) || currentFiles[idx - 1];
-  const filename = f ? f.path : "video.mkv";
+  if (!f) {
+    showEpisodeMessage(
+      cleanTitle(currentTorrent?.title),
+      "📼",
+      "Не найден файл для воспроизведения",
+      "Обновите список файлов и повторите попытку."
+    );
+    return;
+  }
+  const filename = f.path;
 
   document.getElementById("playerTitle").textContent = cleanTitle(currentTorrent?.title);
   document.getElementById("playerEpInfo").textContent = `EP ${idx} / ${currentFiles.length}`;
@@ -901,20 +933,45 @@ function playNextEpisode() {
   }
 }
 
-function downloadEpisode(idx, encodedName) {
+async function downloadEpisode(idx, encodedName) {
   const name = decodeURIComponent(encodedName);
   const url = `${API}/api/download/${encodeURIComponent(name)}?hash=${currentHash}&index=${idx}`;
-  // Open in new tab — Safari will trigger native download manager
-  window.open(url, "_blank");
-  showToast("Загрузка начата...");
+  const probeUrl = `${url}&probe=1`;
+  try {
+    const probeResp = await fetch(probeUrl);
+    const probe = await probeResp.json();
+    if (!probe.ok) {
+      showToast(probe.error || "Загрузка недоступна");
+      return;
+    }
+    // Open in new tab — Safari will trigger native download manager
+    window.open(url, "_blank");
+    showToast("Загрузка начата...");
+  } catch (e) {
+    showToast("Ошибка проверки загрузки");
+  }
 }
 
 // ═══ Play File ═══
 async function playFile(hash, filename, index) {
   const fname = getFilename(filename);
   const streamUrl = `${API}/api/stream/${encodeURIComponent(fname)}?hash=${hash}&index=${index}`;
+  const probeUrl = `${streamUrl}&probe=1`;
+
+  try {
+    const probeResp = await fetch(probeUrl);
+    const probe = await probeResp.json();
+    if (!probe.ok) {
+      showPlayerError("Поток недоступен", probe.error || "Проверьте источник и повторите попытку.");
+      return;
+    }
+  } catch (e) {
+    showPlayerError("Не удалось проверить поток", "Повторите попытку через несколько секунд.");
+    return;
+  }
 
   if (!plyr) {
+    ensurePlayerElement();
     plyr = new Plyr("#player", {
       controls: ["play", "progress", "current-time", "duration", "mute", "volume", "fullscreen"],
       seekTime: 10,
@@ -922,7 +979,7 @@ async function playFile(hash, filename, index) {
     });
   }
 
-  const video = document.getElementById("player");
+  const video = ensurePlayerElement();
   video.src = streamUrl;
   video.load();
 
@@ -954,10 +1011,24 @@ async function playFile(hash, filename, index) {
     if (video.currentTime > 5) savePos(hash, index, video.currentTime, video.duration);
   };
 
+  video.onerror = async () => {
+    try {
+      const probeResp = await fetch(probeUrl);
+      const probe = await probeResp.json();
+      showPlayerError("Ошибка воспроизведения", probe.error || "Поток прерван или недоступен.");
+    } catch (e) {
+      showPlayerError("Ошибка воспроизведения", "Поток прерван или недоступен.");
+    }
+  };
+
   // Auto-next when episode ends
-  video.onended = () => {
-    savePos(hash, index, video.duration, video.duration);
-    showToast("Серия завершена ✓");
+  video.onended = async () => {
+    const result = await savePos(hash, index, video.duration, video.duration);
+    if (result?.viewed_sync_attempted && !result?.viewed_synced) {
+      showToast("Серия завершена, но синхронизация статуса не удалась");
+    } else {
+      showToast("Серия завершена ✓");
+    }
     // Auto-play next after 3s
     const currentIdx = currentFiles.findIndex(f => (f.id || 0) === index);
     if (currentFiles.length > 1 && currentIdx < currentFiles.length - 1) {
@@ -966,28 +1037,38 @@ async function playFile(hash, filename, index) {
   };
 }
 
-function savePos(hash, index, currentTime, duration) {
-  fetch(`${API}/api/position/${hash}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      position: Math.floor(currentTime),
-      duration: Math.floor(duration || 0),
-      file_index: index,
-    }),
-  }).catch(() => {});
+async function savePos(hash, index, currentTime, duration) {
+  try {
+    const r = await fetch(`${API}/api/position/${hash}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        position: Math.floor(currentTime),
+        duration: Math.floor(duration || 0),
+        file_index: index,
+      }),
+    });
+    return await r.json();
+  } catch (e) {
+    showToast("Ошибка сохранения позиции");
+    return { ok: false, error: "save failed" };
+  }
 }
 
 function closePlayer() {
   const video = document.getElementById("player");
   if (saveTimer) clearInterval(saveTimer);
-  if (video.currentTime > 5) {
+  if (video && video.currentTime > 5) {
     savePos(currentHash, currentFileIndex, video.currentTime, video.duration);
   }
-  video.pause();
-  video.removeAttribute("src");
-  video.load();
+  if (video) {
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+  }
   document.getElementById("playerOverlay").classList.remove("active");
+  document.querySelector(".video-wrap").innerHTML = '<video id="player" controls playsinline webkit-playsinline x-webkit-airplay="allow" preload="metadata"></video>';
+  plyr = null;
   document.body.style.overflow = "";
 
   // If episode panel was open, refresh it
