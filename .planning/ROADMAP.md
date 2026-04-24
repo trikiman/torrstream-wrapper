@@ -9,7 +9,7 @@ This roadmap treats the existing wrapper as a brownfield codebase that already p
 - [x] **Phase 1: Brownfield Baseline** - Replace stale docs with planning artifacts and operationally accurate project instructions. (completed 2026-04-05)
 - [x] **Phase 2: Library and Management Hardening** - Verify and stabilize listing, file inspection, add, and remove flows. (completed 2026-04-21)
 - [x] **Phase 3: Playback and Sync Hardening** - Verify and stabilize streaming, downloading, and per-file resume behavior. (completed 2026-04-24)
-- [ ] **Phase 4: Discovery and Delivery Alignment** - Verify search, app-shell delivery, and deployment-path correctness.
+- [x] **Phase 4: Discovery and Delivery Alignment** - Verify search, app-shell delivery, and deployment-path correctness. (completed 2026-04-24)
 
 ## Phase Details
 
@@ -68,9 +68,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 04-01: Verify and harden jacred search integration.
-- [ ] 04-02: Reconcile browser asset paths with the supported deployment topology.
-- [ ] 04-03: Add a lightweight smoke-verification workflow for critical flows.
+- [x] 04-01: Verify and harden jacred search integration.
+- [x] 04-02: Reconcile browser asset paths with the supported deployment topology.
+- [x] 04-03: Add a lightweight smoke-verification workflow for critical flows.
 
 ## Progress
 
@@ -82,4 +82,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 1. Brownfield Baseline | 2/2 | Complete    | 2026-04-05 |
 | 2. Library and Management Hardening | 3/3 | Complete | 2026-04-21 |
 | 3. Playback and Sync Hardening | 3/3 | Complete | 2026-04-24 |
-| 4. Discovery and Delivery Alignment | 0/3 | Not started | - |
+| 4. Discovery and Delivery Alignment | 3/3 | Complete    | 2026-04-24 |

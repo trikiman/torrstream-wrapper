@@ -27,11 +27,11 @@
 
 ### Discovery
 
-- [ ] **DISC-01**: User can search jacred from the UI and review addable results.
+- [x] **DISC-01**: User can search jacred from the UI and review addable results.
 
 ### Delivery
 
-- [ ] **DELV-01**: The web UI loads as a single installable app shell with manifest and service-worker assets.
+- [x] **DELV-01**: The web UI loads as a single installable app shell with manifest and service-worker assets.
 - [x] **DELV-02**: Deployment paths and runtime configuration are documented and aligned with the actual access pattern.
 
 ### Quality
@@ -73,8 +73,8 @@
 | PLAY-02 | Phase 3 | Complete |
 | SYNC-01 | Phase 3 | Complete |
 | SYNC-02 | Phase 3 | Complete |
-| DISC-01 | Phase 4 | Pending |
-| DELV-01 | Phase 4 | Pending |
+| DISC-01 | Phase 4 | Complete |
+| DELV-01 | Phase 4 | Complete |
 
 **Coverage:**
 - v1 requirements: 11 total
