@@ -12,13 +12,13 @@
 
 ### Playback
 
-- [ ] **PLAY-01**: User can stream a selected file through the wrapper with HTTP range support.
-- [ ] **PLAY-02**: User can download a selected file through the wrapper.
+- [x] **PLAY-01**: User can stream a selected file through the wrapper with HTTP range support.
+- [x] **PLAY-02**: User can download a selected file through the wrapper.
 
 ### Sync
 
-- [ ] **SYNC-01**: User watch position is stored per torrent file on the server.
-- [ ] **SYNC-02**: Wrapper marks a file as viewed in TorrServer when playback passes the completion threshold.
+- [x] **SYNC-01**: User watch position is stored per torrent file on the server.
+- [x] **SYNC-02**: Wrapper marks a file as viewed in TorrServer when playback passes the completion threshold.
 
 ### Management
 
@@ -69,10 +69,10 @@
 | LIBR-02 | Phase 2 | Complete |
 | MGMT-01 | Phase 2 | Complete |
 | MGMT-02 | Phase 2 | Complete |
-| PLAY-01 | Phase 3 | Pending |
-| PLAY-02 | Phase 3 | Pending |
-| SYNC-01 | Phase 3 | Pending |
-| SYNC-02 | Phase 3 | Pending |
+| PLAY-01 | Phase 3 | Complete |
+| PLAY-02 | Phase 3 | Complete |
+| SYNC-01 | Phase 3 | Complete |
+| SYNC-02 | Phase 3 | Complete |
 | DISC-01 | Phase 4 | Pending |
 | DELV-01 | Phase 4 | Pending |
 

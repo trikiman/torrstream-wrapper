@@ -8,7 +8,7 @@ This roadmap treats the existing wrapper as a brownfield codebase that already p
 
 - [x] **Phase 1: Brownfield Baseline** - Replace stale docs with planning artifacts and operationally accurate project instructions. (completed 2026-04-05)
 - [x] **Phase 2: Library and Management Hardening** - Verify and stabilize listing, file inspection, add, and remove flows. (completed 2026-04-21)
-- [ ] **Phase 3: Playback and Sync Hardening** - Verify and stabilize streaming, downloading, and per-file resume behavior.
+- [x] **Phase 3: Playback and Sync Hardening** - Verify and stabilize streaming, downloading, and per-file resume behavior. (completed 2026-04-24)
 - [ ] **Phase 4: Discovery and Delivery Alignment** - Verify search, app-shell delivery, and deployment-path correctness.
 
 ## Phase Details
@@ -53,9 +53,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 03-01: Verify stream/download proxy behavior and range handling.
-- [ ] 03-02: Verify and harden per-file position persistence.
-- [ ] 03-03: Verify viewed-state synchronization with TorrServer.
+- [x] 03-01: Verify stream/download proxy behavior and range handling.
+- [x] 03-02: Verify and harden per-file position persistence.
+- [x] 03-03: Verify viewed-state synchronization with TorrServer.
 
 ### Phase 4: Discovery and Delivery Alignment
 **Goal**: Make search and browser delivery paths reliable for the intended deployment shape.
@@ -81,5 +81,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 |-------|----------------|--------|-----------|
 | 1. Brownfield Baseline | 2/2 | Complete    | 2026-04-05 |
 | 2. Library and Management Hardening | 3/3 | Complete | 2026-04-21 |
-| 3. Playback and Sync Hardening | 0/3 | Not started | - |
+| 3. Playback and Sync Hardening | 3/3 | Complete | 2026-04-24 |
 | 4. Discovery and Delivery Alignment | 0/3 | Not started | - |
