@@ -35,6 +35,16 @@ Expected local base URL:
 http://127.0.0.1:5000
 ```
 
+## Fast Path
+
+Run the helper first:
+
+```bash
+python scripts/smoke_check.py
+```
+
+Then use the detailed checks below when you need to investigate a specific failure.
+
 ## Safe Structural Checks
 
 These do not require a real torrent hash.

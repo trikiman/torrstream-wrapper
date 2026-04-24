@@ -104,6 +104,17 @@ The frontend now uses relative shell asset paths, so root-path deployments do no
 - if exposed publicly, the wrapper exposes torrent listing, add/remove, and playback operations
 - keep service credentials out of versioned deployment config
 
+## Installability
+
+The shell now includes an install affordance in the UI.
+
+- Browsers that support `beforeinstallprompt` can surface a native install flow.
+- iPad/iPhone Safari users get explicit “Share -> Add to Home Screen” guidance instead of a dead install action.
+
+This behavior lives in `templates/index.html` and depends on:
+- a valid manifest at `/manifest.json`
+- a registered service worker at `/sw.js`
+
 ## Recommended Verification
 
 After deployment or path changes, use `docs/SMOKE-TESTS.md`.
@@ -115,3 +126,9 @@ At minimum verify:
 - `/api/status` reflects upstream availability
 - `/api/torrents` returns structured library diagnostics
 - playback-related flows still work against a real TorrServer instance
+
+For a quick local pass, start the wrapper and run:
+
+```bash
+python scripts/smoke_check.py
+```

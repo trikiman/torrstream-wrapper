@@ -95,6 +95,19 @@ nav {
 .search-wrap input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
 .search-wrap .icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text2); font-size: 15px; pointer-events: none; }
 .nav-right { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.install-btn {
+  background: var(--green);
+  border: none;
+  color: white;
+  padding: 8px 14px;
+  border-radius: 22px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  transition: all var(--transition);
+  display: none;
+}
+.install-btn:hover { background: var(--green2); transform: scale(1.04); }
 .nav-btn {
   background: var(--bg3);
   border: none;
@@ -483,6 +496,7 @@ video { max-width: 100%; max-height: 100vh; max-height: 100dvh; width: 100%; }
   </div>
   <div class="nav-right">
     <button class="nav-btn" onclick="toggleTheme()" id="themeBtn" title="Тема">☀️</button>
+    <button class="install-btn" id="installBtn" onclick="handleInstallClick()">Установить</button>
     <button class="add-btn" onclick="openAddModal()">+ <span>Magnet</span></button>
   </div>
 </nav>
@@ -563,6 +577,7 @@ let saveTimer = null;
 let searchTimer = null;
 let allTorrents = [];
 let lastStatus = null;
+let deferredInstallPrompt = null;
 
 function normalizeTorrentResponse(data) {
   if (Array.isArray(data)) {
@@ -625,6 +640,27 @@ function fmtTime(sec) {
 
 function cleanTitle(title) {
   return (title || "").replace(/^\[LAMPA\]\s*/i, "").trim() || "Без названия";
+}
+
+function cacheSearchResults(query, results) {
+  try {
+    localStorage.setItem(`search-cache:${query.toLowerCase()}`, JSON.stringify(results));
+  } catch (e) {}
+}
+
+function getCachedSearchResults(query) {
+  try {
+    const raw = localStorage.getItem(`search-cache:${query.toLowerCase()}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function librarySearchMatches(query) {
+  const normalized = (query || "").toLowerCase();
+  if (!normalized) return [];
+  return allTorrents.filter(t => cleanTitle(t.title).toLowerCase().includes(normalized));
 }
 
 function getFilename(path) {
@@ -729,6 +765,36 @@ function cardHTML(t, showProgress) {
         <button class="card-delete" onclick="event.stopPropagation();confirmRemoveTorrent('${t.hash}', '${safeTitle}')">Удалить</button>
       </div>
     </div>
+  </div>`;
+}
+
+function searchResultHTML(item, key, options = {}) {
+  const title = item.Title || item.title || "Без названия";
+  const tracker = item.Tracker || item.tracker || options.badge || "";
+  const size = fmtSize(item.Size || item.torrent_size);
+  const seeds = item.Seeders || 0;
+  const meta = [tracker, size, seeds > 0 ? `${seeds} сидов` : ""].filter(Boolean).join(" · ");
+  const magnet = (item.MagnetUri || "").replace(/'/g, "\\'");
+  const safeTitle = title.replace(/'/g, "\\'");
+
+  if (options.localHash) {
+    return `<div class="result-item" onclick="openTorrent('${options.localHash}')">
+      <div class="result-info">
+        <div class="result-title">${title}</div>
+        <div class="result-meta">${meta || "Уже в библиотеке"}</div>
+      </div>
+      <button class="result-add" onclick="event.stopPropagation();openTorrent('${options.localHash}')">Открыть</button>
+    </div>`;
+  }
+
+  return `<div class="result-item">
+    <div class="result-info">
+      <div class="result-title">${title}</div>
+      <div class="result-meta">${meta}</div>
+    </div>
+    <button class="result-add" id="btn-${key}" onclick="addFromSearch('${key}', '${magnet}', '${safeTitle}')">
+      + Добавить
+    </button>
   </div>`;
 }
 
@@ -1106,7 +1172,23 @@ async function doSearch(q) {
     countEl.textContent = results.length;
 
     if (data.ok === false) {
-      listDiv.innerHTML = '<div class="empty"><div class="icon">⚠️</div><div>Сервис поиска недоступен</div><div>Проверьте jacred или повторите попытку позже</div></div>';
+      const cached = getCachedSearchResults(q);
+      const localMatches = librarySearchMatches(q);
+      const blocks = [];
+
+      blocks.push('<div class="empty"><div class="icon">⚠️</div><div>Сервис поиска недоступен</div><div>Проверьте jacred или повторите попытку позже</div><button class="empty-action" onclick="doSearch(searchInput.value.trim())">Повторить</button></div>');
+
+      if (cached.length > 0) {
+        blocks.push(`<div class="section-title" style="margin-top:18px">Сохраненные результаты <span class="count">${cached.length}</span></div>`);
+        blocks.push(cached.slice(0, 20).map((item, i) => searchResultHTML(item, `cached-${i}`, { badge: "кэш" })).join(""));
+      }
+
+      if (localMatches.length > 0) {
+        blocks.push(`<div class="section-title" style="margin-top:18px">Совпадения в библиотеке <span class="count">${localMatches.length}</span></div>`);
+        blocks.push(localMatches.slice(0, 20).map((item, i) => searchResultHTML(item, `local-${i}`, { localHash: item.hash, badge: "библиотека" })).join(""));
+      }
+
+      listDiv.innerHTML = blocks.join("");
       return;
     }
 
@@ -1115,24 +1197,8 @@ async function doSearch(q) {
       return;
     }
 
-    listDiv.innerHTML = results.slice(0, 30).map((item, i) => {
-      const title = item.Title || "Без названия";
-      const tracker = item.Tracker || "";
-      const size = fmtSize(item.Size);
-      const seeds = item.Seeders || 0;
-      const meta = [tracker, size, seeds > 0 ? `${seeds} сидов` : ""].filter(Boolean).join(" · ");
-      const magnet = (item.MagnetUri || "").replace(/'/g, "\\'");
-      const safeTitle = title.replace(/'/g, "\\'");
-      return `<div class="result-item">
-        <div class="result-info">
-          <div class="result-title">${title}</div>
-          <div class="result-meta">${meta}</div>
-        </div>
-        <button class="result-add" id="btn-${i}" onclick="addFromSearch(${i}, '${magnet}', '${safeTitle}')">
-          + Добавить
-        </button>
-      </div>`;
-    }).join("");
+    cacheSearchResults(q, results);
+    listDiv.innerHTML = results.slice(0, 30).map((item, i) => searchResultHTML(item, i)).join("");
   } catch(e) {
     listDiv.innerHTML = '<div class="empty"><div class="icon">⚠️</div><div>Ошибка поиска</div></div>';
   }
@@ -1210,6 +1276,44 @@ async function confirmRemoveTorrent(hash, title) {
   }
 }
 
+function updateInstallButton() {
+  const btn = document.getElementById("installBtn");
+  const ua = navigator.userAgent || "";
+  const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+
+  if (isStandalone) {
+    btn.style.display = "none";
+    return;
+  }
+
+  if (deferredInstallPrompt || isIOS) {
+    btn.style.display = "inline-flex";
+  } else {
+    btn.style.display = "none";
+  }
+}
+
+async function handleInstallClick() {
+  const ua = navigator.userAgent || "";
+  const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice.catch(() => null);
+    deferredInstallPrompt = null;
+    updateInstallButton();
+    return;
+  }
+
+  if (isIOS) {
+    showToast("Safari: Поделиться → На экран «Домой»");
+    return;
+  }
+
+  showToast("Установка недоступна в этом браузере");
+}
+
 // ═══ Event Listeners ═══
 document.addEventListener("click", (e) => {
   if (!e.target.closest(".search-wrap") && !e.target.closest("#searchResults")) {
@@ -1230,7 +1334,20 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  updateInstallButton();
+});
+
+window.addEventListener("appinstalled", () => {
+  deferredInstallPrompt = null;
+  updateInstallButton();
+  showToast("Приложение установлено");
+});
+
 // ═══ Init ═══
+updateInstallButton();
 loadTorrents();
 setInterval(loadTorrents, 30000);
 </script>
