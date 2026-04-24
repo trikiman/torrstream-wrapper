@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: milestone_ready
-stopped_at: All phases complete; milestone archival is next
-last_updated: "2026-04-24T12:50:00.000Z"
-last_activity: 2026-04-24 -- All milestone phases complete
+status: completed
+stopped_at: Milestone v1.0 archived and shipped
+last_updated: "2026-04-24T12:58:00.000Z"
+last_activity: 2026-04-24 -- Milestone v1.0 archived and shipped
 progress:
   total_phases: 4
   completed_phases: 4
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-04-05)
 
 Phase: 4 of 4 (discovery and delivery alignment)
 Plan: 3 of 3 in current phase
-Status: Ready to complete milestone
-Last activity: 2026-04-24 -- All milestone phases complete
+Status: Milestone complete
+Last activity: 2026-04-24 -- Milestone v1.0 archived and shipped
 
 Progress: [██████████] 100%
 
@@ -77,10 +77,10 @@ None yet.
 - No automated test suite exists yet.
 - Use `python scripts/smoke_check.py` first, then `docs/SMOKE-TESTS.md` for deeper wrapper verification.
 - jacred search is currently failing upstream from this environment, but the UI now surfaces that provider failure explicitly and can still show local-library matches.
-- All phase summaries exist under `.planning/phases/`.
+- Archived phase artifacts now live under `.planning/milestones/v1.0-phases/`.
 
 ## Session Continuity
 
 Last session: 2026-04-05 20:00
-Stopped at: All phases complete; milestone archival is next
+Stopped at: Milestone v1.0 archived and shipped
 Resume file: None
