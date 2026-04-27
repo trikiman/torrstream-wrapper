@@ -47,4 +47,6 @@ Config is driven by environment variables in `app.py`:
 
 ## Status
 
+_Auto-deploy verified: 
+
 This repo is set up as a brownfield GSD project with planning artifacts under `.planning/`.
