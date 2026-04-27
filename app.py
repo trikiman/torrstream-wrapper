@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """TorrStream — Flask backend for cross-device torrent streaming with sync."""
 
+import hashlib
+import hmac
 import json
 import logging
 import os
 import re
+import subprocess
 import time
 from pathlib import Path
 
@@ -555,6 +558,95 @@ def search():
     except Exception as e:
         app.logger.warning("Search provider failed: %s", e)
         return jsonify({"ok": False, "Results": [], "error": str(e)})
+
+
+# ─── GitHub Webhook: auto-pull on push ───────────────────────────────────────
+GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
+GIT_REPO_PATH = Path(__file__).parent
+TORRSTREAM_SERVICE = os.getenv("TORRSTREAM_SERVICE", "torrstream.service")
+
+
+@app.route("/api/github-webhook", methods=["POST"])
+def github_webhook():
+    """Receive GitHub push webhook, pull latest code, restart service.
+
+    Mirrors the saleapp-backend pattern: verify HMAC signature, pull origin/main,
+    restart the systemd unit if any code-relevant file changed.
+    """
+    body = request.get_data()
+
+    # Verify signature when secret is configured
+    if GITHUB_WEBHOOK_SECRET:
+        sig_header = request.headers.get("X-Hub-Signature-256", "")
+        expected = "sha256=" + hmac.new(
+            GITHUB_WEBHOOK_SECRET.encode(), body, hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(sig_header, expected):
+            return jsonify({"ok": False, "error": "invalid signature"}), 401
+
+    try:
+        payload = json.loads(body)
+    except Exception:
+        return jsonify({"ok": False, "error": "invalid json"}), 400
+
+    # Only act on pushes to main (ignore branch pushes, tag pushes, ping events)
+    ref = payload.get("ref", "")
+    if ref != "refs/heads/main":
+        return jsonify({"ok": True, "status": "ignored", "ref": ref})
+
+    # Backup positions.json before pull (defensive — protect runtime state even
+    # if skip-worktree gets cleared by some future git operation)
+    positions_backup = None
+    if POSITIONS_FILE.exists():
+        try:
+            positions_backup = POSITIONS_FILE.read_text(encoding="utf-8")
+        except Exception:
+            positions_backup = None
+
+    pull_result = subprocess.run(
+        ["git", "pull", "--ff-only", "origin", "main"],
+        cwd=str(GIT_REPO_PATH),
+        capture_output=True, text=True, timeout=30,
+    )
+
+    # Restore positions.json if pull touched it
+    if positions_backup is not None:
+        try:
+            current = POSITIONS_FILE.read_text(encoding="utf-8") if POSITIONS_FILE.exists() else ""
+            if current != positions_backup:
+                POSITIONS_FILE.write_text(positions_backup, encoding="utf-8")
+        except Exception as e:
+            app.logger.warning("Failed to restore positions.json: %s", e)
+
+    # Determine if any code files changed (so we know whether to restart)
+    changed_files = []
+    for c in payload.get("commits", []):
+        changed_files.extend(c.get("modified", []))
+        changed_files.extend(c.get("added", []))
+        changed_files.extend(c.get("removed", []))
+
+    code_changed = any(
+        f.endswith(".py") or f.endswith(".html") or f.endswith(".js")
+        or f.endswith(".css") or f == "requirements.txt"
+        for f in changed_files
+    )
+
+    # Schedule a restart with a short delay so this response can flush back to
+    # GitHub before systemd kills the worker. Popen returns immediately.
+    if code_changed:
+        subprocess.Popen(
+            ["bash", "-c", f"sleep 2 && sudo systemctl restart {TORRSTREAM_SERVICE}"],
+            cwd=str(GIT_REPO_PATH),
+        )
+
+    return jsonify({
+        "ok": True,
+        "status": "updated",
+        "restart_scheduled": code_changed,
+        "files_changed": len(changed_files),
+        "pull_output": pull_result.stdout[:200],
+        "pull_stderr": pull_result.stderr[:200] if pull_result.returncode != 0 else "",
+    })
 
 
 # ─── Main ────────────────────────────────────────────────────────────────────
