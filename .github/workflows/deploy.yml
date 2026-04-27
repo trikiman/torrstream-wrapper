@@ -1,0 +1,66 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: torrstream-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy TorrStream to EC2
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout (for context only)
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script_stop: true
+          envs: GITHUB_SHA
+          script: |
+            set -euo pipefail
+            cd ~/torrstream
+
+            echo "=== Before pull ==="
+            git rev-parse --short HEAD
+
+            # Backup runtime state (skip-worktree alone is not always honored by reset --hard)
+            cp -f positions.json /tmp/torrstream-positions.bak 2>/dev/null || true
+
+            git fetch --quiet origin main
+            git reset --hard origin/main
+            git clean -fd -e .venv -e positions.json
+
+            # Restore runtime state
+            if [ -f /tmp/torrstream-positions.bak ]; then
+              cp -f /tmp/torrstream-positions.bak positions.json
+            fi
+            git update-index --skip-worktree positions.json 2>/dev/null || true
+
+            echo "=== After pull ==="
+            git rev-parse --short HEAD
+
+            echo "=== Installing/updating Python deps ==="
+            .venv/bin/pip install -q --upgrade -r requirements.txt
+
+            echo "=== Restarting service ==="
+            sudo systemctl restart torrstream.service
+
+            echo "=== Verifying service started ==="
+            sleep 2
+            sudo systemctl is-active torrstream.service
+            curl -fsS -o /dev/null -w "  /api/status -> HTTP %{http_code}\n" http://127.0.0.1:5000/api/status
+
+            echo "=== Deploy successful (target: ${GITHUB_SHA::7}) ==="
