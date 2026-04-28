@@ -1227,11 +1227,22 @@ async function showRecentSearches() {
     panel.classList.remove("active");
     return;
   }
-  chips.innerHTML = queries.map(item => {
-    const safe = (item.q || "").replace(/"/g, "&quot;");
-    const display = (item.q || "").replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
-    return `<span class="recent-chip" onclick="pickRecentSearch('${safe}')"><span class="icon">🔍</span>${display}</span>`;
-  }).join("");
+  // Build chips via DOM API so user-supplied query strings cannot break out
+  // of an attribute or be interpreted as code (XSS-safe by construction).
+  chips.replaceChildren();
+  for (const item of queries) {
+    const q = (item && typeof item.q === "string") ? item.q : "";
+    if (!q) continue;
+    const chip = document.createElement("span");
+    chip.className = "recent-chip";
+    chip.addEventListener("click", () => pickRecentSearch(q));
+    const icon = document.createElement("span");
+    icon.className = "icon";
+    icon.textContent = "🔍";
+    chip.appendChild(icon);
+    chip.appendChild(document.createTextNode(q));
+    chips.appendChild(chip);
+  }
   panel.classList.add("active");
 }
 
