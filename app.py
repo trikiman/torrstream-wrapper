@@ -25,6 +25,8 @@ TORRSERVER_AUTH = (TORRSERVER_USER, TORRSERVER_PASS) if (TORRSERVER_USER or TORR
 JACRED_URL = os.getenv("JACRED_URL", "https://jac.red")
 JACRED_KEY = os.getenv("JACRED_KEY", "")
 POSITIONS_FILE = Path(__file__).parent / "positions.json"
+RECENT_SEARCHES_FILE = Path(__file__).parent / "recent_searches.json"
+RECENT_SEARCHES_LIMIT = 20
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".m4v", ".mov", ".wmv", ".ts", ".webm"}
 
@@ -69,6 +71,42 @@ def save_positions(data):
     tmp_file = POSITIONS_FILE.with_suffix(".tmp")
     tmp_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp_file.replace(POSITIONS_FILE)
+
+
+# ─── Recent searches DB (file-based, server-synced across devices) ───────────
+def load_recent_searches():
+    """Load recent searches. Schema: {"queries": [{"q": str, "ts": int}, ...]}"""
+    if RECENT_SEARCHES_FILE.exists():
+        try:
+            data = json.loads(RECENT_SEARCHES_FILE.read_text(encoding="utf-8"))
+            queries = data.get("queries", [])
+            cleaned = []
+            for item in queries:
+                if isinstance(item, dict) and isinstance(item.get("q"), str) and item["q"].strip():
+                    cleaned.append({"q": item["q"], "ts": int(item.get("ts", 0))})
+            return {"queries": cleaned}
+        except (json.JSONDecodeError, ValueError, TypeError) as e:
+            app.logger.warning("Failed to parse recent_searches.json: %s", e)
+    return {"queries": []}
+
+
+def save_recent_searches(data):
+    tmp_file = RECENT_SEARCHES_FILE.with_suffix(".tmp")
+    tmp_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_file.replace(RECENT_SEARCHES_FILE)
+
+
+def record_recent_search(q):
+    """Prepend query, dedupe (case-insensitive), cap at RECENT_SEARCHES_LIMIT."""
+    q = (q or "").strip()
+    if not q or len(q) > 200:
+        return load_recent_searches()
+    data = load_recent_searches()
+    queries = [item for item in data.get("queries", []) if item.get("q", "").lower() != q.lower()]
+    queries.insert(0, {"q": q, "ts": int(time.time())})
+    data["queries"] = queries[:RECENT_SEARCHES_LIMIT]
+    save_recent_searches(data)
+    return data
 
 
 # ─── TorrServer helpers ──────────────────────────────────────────────────────
@@ -581,6 +619,29 @@ def search():
         return jsonify({"ok": False, "Results": [], "error": str(e)})
 
 
+@app.route("/api/recent-searches", methods=["GET"])
+def get_recent_searches():
+    """Return recent search queries (server-stored, synced across devices)."""
+    return jsonify({"ok": True, **load_recent_searches()})
+
+
+@app.route("/api/recent-searches", methods=["POST"])
+def post_recent_search():
+    """Record a search query. Body: {q: str}. Dedupes, caps at RECENT_SEARCHES_LIMIT."""
+    body = request.get_json(force=True, silent=True) or {}
+    q = body.get("q", "")
+    if not isinstance(q, str) or not q.strip():
+        return jsonify({"ok": False, "error": "missing query"}), 400
+    return jsonify({"ok": True, **record_recent_search(q)})
+
+
+@app.route("/api/recent-searches", methods=["DELETE"])
+def clear_recent_searches():
+    """Clear all recent searches."""
+    save_recent_searches({"queries": []})
+    return jsonify({"ok": True, "queries": []})
+
+
 # ─── GitHub Webhook: auto-pull on push ───────────────────────────────────────
 GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
 GIT_REPO_PATH = Path(__file__).parent
@@ -615,14 +676,15 @@ def github_webhook():
     if ref != "refs/heads/main":
         return jsonify({"ok": True, "status": "ignored", "ref": ref})
 
-    # Backup positions.json before pull (defensive — protect runtime state even
+    # Backup runtime-state files before pull (defensive — protect them even
     # if skip-worktree gets cleared by some future git operation)
-    positions_backup = None
-    if POSITIONS_FILE.exists():
-        try:
-            positions_backup = POSITIONS_FILE.read_text(encoding="utf-8")
-        except Exception:
-            positions_backup = None
+    runtime_backups = {}
+    for runtime_file in (POSITIONS_FILE, RECENT_SEARCHES_FILE):
+        if runtime_file.exists():
+            try:
+                runtime_backups[runtime_file] = runtime_file.read_text(encoding="utf-8")
+            except Exception:
+                pass
 
     pull_result = subprocess.run(
         ["git", "pull", "--ff-only", "origin", "main"],
@@ -630,14 +692,14 @@ def github_webhook():
         capture_output=True, text=True, timeout=30,
     )
 
-    # Restore positions.json if pull touched it
-    if positions_backup is not None:
+    # Restore runtime-state files if pull touched them
+    for runtime_file, backup in runtime_backups.items():
         try:
-            current = POSITIONS_FILE.read_text(encoding="utf-8") if POSITIONS_FILE.exists() else ""
-            if current != positions_backup:
-                POSITIONS_FILE.write_text(positions_backup, encoding="utf-8")
+            current = runtime_file.read_text(encoding="utf-8") if runtime_file.exists() else ""
+            if current != backup:
+                runtime_file.write_text(backup, encoding="utf-8")
         except Exception as e:
-            app.logger.warning("Failed to restore positions.json: %s", e)
+            app.logger.warning("Failed to restore %s: %s", runtime_file.name, e)
 
     # Determine if any code files changed (so we know whether to restart)
     changed_files = []

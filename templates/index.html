@@ -225,6 +225,43 @@ main { padding: 0 20px 80px; }
 /* ═══ SEARCH RESULTS ═══ */
 .search-results { display: none; }
 .search-results.active { display: block; }
+
+/* ═══ RECENT SEARCHES ═══ */
+.recent-searches { display: none; }
+.recent-searches.active { display: block; }
+.recent-searches .section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.recent-clear {
+  font-size: 12px;
+  color: var(--text2);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.recent-clear:hover { color: var(--text); background: var(--bg3); }
+.recent-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.recent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--bg2);
+  border: 1px solid var(--bg3);
+  border-radius: 18px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  user-select: none;
+}
+.recent-chip:hover { background: var(--bg3); border-color: var(--accent); }
+.recent-chip .icon { font-size: 12px; opacity: 0.6; }
 .result-item {
   display: flex;
   align-items: center;
@@ -502,6 +539,15 @@ video { max-width: 100%; max-height: 100vh; max-height: 100dvh; width: 100%; }
 </nav>
 
 <main>
+  <!-- Recent searches (server-synced) -->
+  <div class="section recent-searches" id="recentSearches">
+    <div class="section-title">
+      <span>🕘 Недавние запросы</span>
+      <button class="recent-clear" id="recentClearBtn" onclick="clearRecentSearches()">Очистить</button>
+    </div>
+    <div class="recent-chips" id="recentChips"></div>
+  </div>
+
   <!-- Search results -->
   <div class="section search-results" id="searchResults">
     <div class="section-title">Результаты поиска <span class="count" id="searchCount"></span></div>
@@ -1152,10 +1198,84 @@ searchInput.addEventListener("input", () => {
   const q = searchInput.value.trim();
   if (q.length < 2) {
     document.getElementById("searchResults").classList.remove("active");
+    if (q.length === 0) showRecentSearches();
     return;
   }
+  document.getElementById("recentSearches").classList.remove("active");
   searchTimer = setTimeout(() => doSearch(q), 500);
 });
+searchInput.addEventListener("focus", () => {
+  if (searchInput.value.trim().length === 0) showRecentSearches();
+});
+
+// ═══ Recent searches (server-synced across devices) ═══
+async function loadRecentSearches() {
+  try {
+    const r = await fetch(`${API}/api/recent-searches`);
+    const data = await r.json();
+    return Array.isArray(data.queries) ? data.queries : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+async function showRecentSearches() {
+  const panel = document.getElementById("recentSearches");
+  const chips = document.getElementById("recentChips");
+  const queries = await loadRecentSearches();
+  // After the async fetch, re-check that the user hasn't started typing —
+  // otherwise we'd re-show the recent panel on top of live search results.
+  if (searchInput.value.trim().length > 0) {
+    panel.classList.remove("active");
+    return;
+  }
+  if (queries.length === 0) {
+    panel.classList.remove("active");
+    return;
+  }
+  // Build chips via DOM API so user-supplied query strings cannot break out
+  // of an attribute or be interpreted as code (XSS-safe by construction).
+  chips.replaceChildren();
+  for (const item of queries) {
+    const q = (item && typeof item.q === "string") ? item.q : "";
+    if (!q) continue;
+    const chip = document.createElement("span");
+    chip.className = "recent-chip";
+    chip.addEventListener("click", () => pickRecentSearch(q));
+    const icon = document.createElement("span");
+    icon.className = "icon";
+    icon.textContent = "🔍";
+    chip.appendChild(icon);
+    chip.appendChild(document.createTextNode(q));
+    chips.appendChild(chip);
+  }
+  panel.classList.add("active");
+}
+
+function pickRecentSearch(q) {
+  searchInput.value = q;
+  searchInput.focus();
+  document.getElementById("recentSearches").classList.remove("active");
+  doSearch(q);
+}
+
+async function recordRecentSearch(q) {
+  try {
+    await fetch(`${API}/api/recent-searches`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ q }),
+    });
+  } catch (e) {}
+}
+
+async function clearRecentSearches() {
+  try {
+    await fetch(`${API}/api/recent-searches`, { method: "DELETE" });
+  } catch (e) {}
+  document.getElementById("recentChips").innerHTML = "";
+  document.getElementById("recentSearches").classList.remove("active");
+}
 
 async function doSearch(q) {
   const resultsDiv = document.getElementById("searchResults");
@@ -1198,6 +1318,7 @@ async function doSearch(q) {
     }
 
     cacheSearchResults(q, results);
+    recordRecentSearch(q);
     listDiv.innerHTML = results.slice(0, 30).map((item, i) => searchResultHTML(item, i)).join("");
   } catch(e) {
     listDiv.innerHTML = '<div class="empty"><div class="icon">⚠️</div><div>Ошибка поиска</div></div>';
@@ -1316,8 +1437,11 @@ async function handleInstallClick() {
 
 // ═══ Event Listeners ═══
 document.addEventListener("click", (e) => {
-  if (!e.target.closest(".search-wrap") && !e.target.closest("#searchResults")) {
+  if (!e.target.closest(".search-wrap")
+      && !e.target.closest("#searchResults")
+      && !e.target.closest("#recentSearches")) {
     document.getElementById("searchResults").classList.remove("active");
+    document.getElementById("recentSearches").classList.remove("active");
     searchInput.value = "";
   }
 });
