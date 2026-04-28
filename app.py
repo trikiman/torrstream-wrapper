@@ -22,7 +22,7 @@ TORRSERVER = os.getenv("TORRSERVER_URL", "http://127.0.0.1:8090")
 TORRSERVER_USER = os.getenv("TORRSERVER_USER", "")
 TORRSERVER_PASS = os.getenv("TORRSERVER_PASS", "")
 TORRSERVER_AUTH = (TORRSERVER_USER, TORRSERVER_PASS) if (TORRSERVER_USER or TORRSERVER_PASS) else None
-JACRED_URL = os.getenv("JACRED_URL", "https://jacred.xyz")
+JACRED_URL = os.getenv("JACRED_URL", "https://jac.red")
 JACRED_KEY = os.getenv("JACRED_KEY", "")
 POSITIONS_FILE = Path(__file__).parent / "positions.json"
 
@@ -534,7 +534,15 @@ def remove_torrent(torrent_hash):
 
 @app.route("/api/search")
 def search():
-    """Search via jacred.xyz."""
+    """Search via the configured Jacred-compatible provider.
+
+    Handles two response shapes seen in the wild:
+    - jac.red and current Jacred mirrors return a flat JSON list of torrent
+      records ([{title, tracker, sid, magnet, ...}, ...]) or `{}` when there
+      are no matches.
+    - Older Jacred deployments returned a dict keyed by media id, where each
+      value held a `torrents` array. Kept for backward compatibility.
+    """
     q = request.args.get("q", "")
     if not q:
         return jsonify({"ok": True, "Results": []})
@@ -544,8 +552,21 @@ def search():
         r = requests.get(f"{JACRED_URL}/api/v1.0/torrents", params=params, timeout=15)
         data = r.json()
         results = []
-        if isinstance(data, dict):
-            for key, item in data.items():
+        if isinstance(data, list):
+            for torrent in data:
+                if not isinstance(torrent, dict):
+                    continue
+                results.append({
+                    "Title": torrent.get("title") or torrent.get("name", ""),
+                    "Size": torrent.get("size", 0),
+                    "Seeders": torrent.get("sid", 0),
+                    "Tracker": torrent.get("tracker", ""),
+                    "MagnetUri": torrent.get("magnet", ""),
+                })
+        elif isinstance(data, dict):
+            for _key, item in data.items():
+                if not isinstance(item, dict):
+                    continue
                 for torrent in item.get("torrents", []):
                     results.append({
                         "Title": torrent.get("title", item.get("title", "")),

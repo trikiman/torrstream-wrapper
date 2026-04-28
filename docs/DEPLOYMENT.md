@@ -53,7 +53,7 @@ Current code defaults in `app.py`:
 - `TORRSERVER_URL=http://127.0.0.1:8090`
 - `TORRSERVER_USER=""`
 - `TORRSERVER_PASS=""`
-- `JACRED_URL=https://jacred.xyz`
+- `JACRED_URL=https://jac.red`
 
 The wrapper does not replace TorrServer. It reads library state from TorrServer and proxies stream/download traffic to it.
 
