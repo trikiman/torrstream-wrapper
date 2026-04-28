@@ -1223,6 +1223,12 @@ async function showRecentSearches() {
   const panel = document.getElementById("recentSearches");
   const chips = document.getElementById("recentChips");
   const queries = await loadRecentSearches();
+  // After the async fetch, re-check that the user hasn't started typing —
+  // otherwise we'd re-show the recent panel on top of live search results.
+  if (searchInput.value.trim().length > 0) {
+    panel.classList.remove("active");
+    return;
+  }
   if (queries.length === 0) {
     panel.classList.remove("active");
     return;
