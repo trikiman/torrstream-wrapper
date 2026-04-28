@@ -169,6 +169,24 @@ def get_viewed(torrent_hash):
     return []
 
 
+def get_all_viewed():
+    """Get viewed entries for every torrent on TorrServer. Returns {hash: [file_index, ...]}."""
+    # TorrServer requires hash key to be present (empty string returns all entries)
+    result = ts_post("/viewed", {"action": "list", "hash": ""})
+    if not (result and isinstance(result, list)):
+        return {}
+    viewed_map = {}
+    for item in result:
+        if not isinstance(item, dict):
+            continue
+        h = item.get("hash") or ""
+        idx = item.get("file_index")
+        if not h or idx is None:
+            continue
+        viewed_map.setdefault(h, []).append(idx)
+    return viewed_map
+
+
 def set_viewed(torrent_hash, file_index):
     """Mark file as viewed in TorrServer (so Lampa sees it too)."""
     result = ts_post("/viewed", {"action": "set", "hash": torrent_hash, "file_index": file_index})
@@ -240,6 +258,10 @@ def list_torrents():
 
     torrents = result if isinstance(result, list) else []
     positions = load_positions()
+    # Pull TorrServer's global "viewed" map so torrents watched in external
+    # players (Lampa, etc) still surface in the "Continue" row even when the
+    # wrapper hasn't recorded a position locally.
+    viewed_map = get_all_viewed()
 
     enriched = []
     for t in torrents:
@@ -251,10 +273,14 @@ def list_torrents():
         # Get the last-played file's position for the "continue watching" bar
         last_pos = files_pos.get(str(last_idx), {})
 
+        viewed_indices = viewed_map.get(h, [])
+
         t["position"] = last_pos.get("position", 0)
         t["duration"] = last_pos.get("duration", 0)
         t["last_file_index"] = last_idx
         t["updated"] = pos_data.get("updated", 0)
+        t["viewed_in_torrserver"] = bool(viewed_indices)
+        t["viewed_indices"] = viewed_indices
         enriched.append(t)
 
     return jsonify({
@@ -360,6 +386,22 @@ def list_files(torrent_hash):
             "error": "",
         },
     })
+
+
+@app.after_request
+def _cors_position(response):
+    """Allow cross-origin position reads/writes (Lampa plugin lives on lampa.mx)."""
+    if request.path.startswith("/api/position/"):
+        response.headers.setdefault("Access-Control-Allow-Origin", "*")
+        response.headers.setdefault("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        response.headers.setdefault("Access-Control-Allow-Headers", "Content-Type")
+        response.headers.setdefault("Access-Control-Max-Age", "600")
+    return response
+
+
+@app.route("/api/position/<torrent_hash>", methods=["OPTIONS"])
+def position_preflight(torrent_hash):
+    return ("", 204)
 
 
 @app.route("/api/position/<torrent_hash>", methods=["GET"])
