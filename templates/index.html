@@ -746,7 +746,13 @@ async function fetchStatus() {
 }
 
 function renderAll() {
-  const continuing = allTorrents.filter(t => t.position > 30 && t.duration > 0 && (t.position / t.duration) < 0.95);
+  const continuing = allTorrents.filter(t => {
+    const inProgress = t.position > 30 && t.duration > 0 && (t.position / t.duration) < 0.95;
+    // Show torrents watched in Lampa (TorrServer-side viewed flag) even when the
+    // wrapper hasn't recorded a position locally.
+    const watchedExternally = t.viewed_in_torrserver && !(t.duration > 0 && (t.position / t.duration) >= 0.95);
+    return inProgress || watchedExternally;
+  });
   const continueSection = document.getElementById("continueSection");
   const continueGrid = document.getElementById("continueGrid");
 
