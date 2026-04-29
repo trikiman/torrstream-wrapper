@@ -1,5 +1,19 @@
 # Milestones
 
+## v1.1 Cross-Client Position Sync (Shipped: 2026-04-29)
+
+**Phases completed:** 1 phase, 2 plans, 5 tasks
+
+**Key accomplishments:**
+
+- Surfaced TorrServer-viewed torrents on the wrapper homepage with a `viewed_in_torrserver` flag so externally-watched media appears in `Продолжить просмотр` even when the wrapper has no local position.
+- Added cross-origin support to `/api/position/*` so a Lampa-side plugin running on `https://lampa.mx` can read and write resume state directly against the wrapper.
+- Shipped a self-contained Lampa plugin at `static/lampa-sync.js` that auto-seeks `<video>` to the wrapper-saved offset on player start and POSTs `{file_index, position, duration}` at a 5 s cadence plus on pause / destroy / pagehide / beforeunload.
+- Hardened plugin lifecycle: lifecycle listeners register exactly once instead of accumulating under the Lampa-detection polling loop, and the resume seek bails when the user switches torrents during the wait-for-metadata window.
+- End-to-end UAT confirms bidirectional sync: Lampa playback advances the wrapper position in real time, and re-opening the same torrent in Lampa restores the wrapper-saved offset.
+
+---
+
 ## v1.0 TorrStream (Shipped: 2026-04-24)
 
 **Phases completed:** 4 phases, 11 plans, 22 tasks
