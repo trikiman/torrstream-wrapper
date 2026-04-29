@@ -138,6 +138,11 @@
             var attempts = 0;
             var seeker = setInterval(function () {
                 attempts++;
+                // Bail if the user has navigated away from this torrent/file.
+                if (!current || current.hash !== parsed.hash || current.file_index !== parsed.file_index) {
+                    clearInterval(seeker);
+                    return;
+                }
                 var v = findVideo();
                 if (v && isFinite(v.duration) && v.duration > 0) {
                     clearInterval(seeker);
@@ -236,21 +241,29 @@
         return true;
     }
 
+    function onVisibilityChange() {
+        if (document.visibilityState === 'hidden') flush();
+    }
+
+    function registerLifecycleListeners() {
+        // Registered exactly once even if attemptInit() polls many times.
+        try {
+            window.addEventListener('beforeunload', flush);
+            window.addEventListener('pagehide', flush);
+            document.addEventListener('visibilitychange', onVisibilityChange);
+        } catch (e) { /* noop */ }
+    }
+
     function attemptInit() {
         if (!window.Lampa) return false;
         var any = false;
         if (hookPlayerListener()) any = true;
         if (hookPlayMethod()) any = true;
         if (any) log('hooks installed (wrapper:', getWrapperUrl(), ')');
-        try {
-            window.addEventListener('beforeunload', flush);
-            window.addEventListener('pagehide', flush);
-            document.addEventListener('visibilitychange', function () {
-                if (document.visibilityState === 'hidden') flush();
-            });
-        } catch (e) { /* noop */ }
         return any;
     }
+
+    registerLifecycleListeners();
 
     if (!attemptInit()) {
         var tries = 0;
