@@ -23,7 +23,6 @@ The application is a Flask server that serves:
 - `/api/files/<torrent_hash>`
 - `/api/position/<torrent_hash>` (`GET` and `POST`)
 - `/api/stream/<filename>`
-- `/api/download/<filename>`
 - `/api/add`
 - `/api/remove/<torrent_hash>`
 - `/api/search`

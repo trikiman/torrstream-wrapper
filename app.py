@@ -194,7 +194,7 @@ def set_viewed(torrent_hash, file_index):
 
 
 def probe_stream_access(filename, torrent_hash, file_index):
-    """Check whether a stream/download request would succeed without returning the media body."""
+    """Check whether a stream request would succeed without returning the media body."""
     ts_url = f"{TORRSERVER}/stream/{filename}?link={torrent_hash}&index={file_index}&play"
     try:
         r = requests.get(ts_url, auth=TORRSERVER_AUTH, headers={"Range": "bytes=0-0"}, stream=True, timeout=20)
@@ -531,62 +531,6 @@ def stream(filename):
 
         resp_headers = {
             "Content-Type": r.headers.get("Content-Type", "video/mp4"),
-            "Accept-Ranges": "bytes",
-        }
-        if "Content-Range" in r.headers:
-            resp_headers["Content-Range"] = r.headers["Content-Range"]
-        if "Content-Length" in r.headers:
-            resp_headers["Content-Length"] = r.headers["Content-Length"]
-
-        def generate():
-            for chunk in r.iter_content(chunk_size=1024 * 256):
-                yield chunk
-
-        return Response(
-            stream_with_context(generate()),
-            status=r.status_code,
-            headers=resp_headers,
-        )
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e), "upstream_status": 0}), 502
-
-
-@app.route("/api/download/<path:filename>")
-def download_file(filename):
-    """Stream video with Content-Disposition: attachment for download."""
-    torrent_hash = request.args.get("hash", "")
-    file_index = request.args.get("index", "1")
-    probe_mode = request.args.get("probe") == "1"
-
-    if not torrent_hash:
-        return jsonify({"ok": False, "error": "missing hash"}), 400
-
-    ts_url = f"{TORRSERVER}/stream/{filename}?link={torrent_hash}&index={file_index}&play"
-    headers = {}
-    if "Range" in request.headers:
-        headers["Range"] = request.headers["Range"]
-
-    if probe_mode:
-        diagnostics = probe_stream_access(filename, torrent_hash, file_index)
-        status_code = 200 if diagnostics["ok"] else 502
-        return jsonify(diagnostics), status_code
-
-    try:
-        r = requests.get(ts_url, auth=TORRSERVER_AUTH, headers=headers, stream=True, timeout=30)
-        if r.status_code >= 400:
-            payload = {
-                "ok": False,
-                "error": f"download request failed with {r.status_code}",
-                "upstream_status": r.status_code,
-                "content_type": r.headers.get("Content-Type", ""),
-            }
-            r.close()
-            return jsonify(payload), 502
-
-        safe_filename = filename.split("/")[-1] if "/" in filename else filename
-        resp_headers = {
-            "Content-Type": r.headers.get("Content-Type", "application/octet-stream"),
-            "Content-Disposition": f'attachment; filename="{safe_filename}"',
             "Accept-Ranges": "bytes",
         }
         if "Content-Range" in r.headers:

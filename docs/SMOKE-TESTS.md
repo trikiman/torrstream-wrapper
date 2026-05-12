@@ -200,27 +200,6 @@ Expected:
 - HTTP 200 or 206
 - `Accept-Ranges: bytes`
 
-### Download Probe
-
-```bash
-curl "http://127.0.0.1:5000/api/download/<FILENAME>?hash=<TORRENT_HASH>&index=<FILE_INDEX>&probe=1"
-```
-
-Expected:
-- valid JSON
-- `ok: true` when download should be available
-- explicit error payload when download is not available
-
-Then verify the real download response:
-
-```bash
-curl -I "http://127.0.0.1:5000/api/download/<FILENAME>?hash=<TORRENT_HASH>&index=<FILE_INDEX>"
-```
-
-Expected:
-- HTTP 200 or 206
-- `Content-Disposition: attachment`
-
 ## Production Smoke (Oracle)
 
 The repo ships `scripts/smoke_prod.py` which hits the live deployment at `https://tv.trikiman.shop`. Run it before shipping any change to the shell, service worker, manifest, player, Lampa plugin, or CORS surface:

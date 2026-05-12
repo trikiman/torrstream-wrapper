@@ -406,7 +406,6 @@ main { padding: 0 20px 80px; }
   transition: all var(--transition);
 }
 .ep-action-btn:hover { background: var(--accent); color: white; }
-.ep-action-btn.download:hover { background: var(--green); }
 
 /* ═══ PLAYER OVERLAY ═══ */
 .player-overlay { display: none; position: fixed; inset: 0; background: #000; z-index: 1000; flex-direction: column; }
@@ -1003,7 +1002,6 @@ function showEpisodePanel(hash, files, lastIdx, viewedIndices) {
         ${progressBar}
       </div>
       <div class="ep-actions">
-        <button class="ep-action-btn download" onclick="event.stopPropagation();downloadEpisode(${idx},'${encodeURIComponent(name)}')" title="Скачать">⬇</button>
         <button class="ep-action-btn" onclick="event.stopPropagation();playEpisode(${idx})" title="Играть">▶</button>
       </div>
     </div>`;
@@ -1070,25 +1068,6 @@ function playNextEpisode() {
   if (currentIdx < currentFiles.length - 1) {
     const next = currentFiles[currentIdx + 1];
     playEpisode(next.id || (currentIdx + 2));
-  }
-}
-
-async function downloadEpisode(idx, encodedName) {
-  const name = decodeURIComponent(encodedName);
-  const url = `${API}/api/download/${encodeURIComponent(name)}?hash=${currentHash}&index=${idx}`;
-  const probeUrl = `${url}&probe=1`;
-  try {
-    const probeResp = await fetch(probeUrl);
-    const probe = await probeResp.json();
-    if (!probe.ok) {
-      showToast(probe.error || "Загрузка недоступна");
-      return;
-    }
-    // Open in new tab — Safari will trigger native download manager
-    window.open(url, "_blank");
-    showToast("Загрузка начата...");
-  } catch (e) {
-    showToast("Ошибка проверки загрузки");
   }
 }
 
