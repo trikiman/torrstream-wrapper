@@ -221,6 +221,16 @@ Expected:
 - HTTP 200 or 206
 - `Content-Disposition: attachment`
 
+## Production Smoke (Oracle)
+
+The repo ships `scripts/smoke_prod.py` which hits the live deployment at `https://tv.trikiman.shop`. Run it before shipping any change to the shell, service worker, manifest, player, Lampa plugin, or CORS surface:
+
+```bash
+python scripts/smoke_prod.py
+```
+
+Expected output: `9/9 PASS`. The Shell row should report `vidstack=True` — this confirms the Vidstack web components are embedded in the served HTML.
+
 ## Manual Browser Checks
 
 Open:
@@ -241,6 +251,21 @@ Verify:
 
 If the library is empty, verify the UI specifically says TorrServer is reachable but empty.
 If playback fails, verify the player shows an explicit error state instead of silently staying broken.
+
+## iOS Safari Walkthrough
+
+Run this on a real iPhone or iPad, not simulator, to catch Safari-specific gotchas.
+
+1. **Open** `https://tv.trikiman.shop/` in Safari. Shell should load with Russian copy; no red errors.
+2. **Install PWA**: Share → "На экран «Домой»" → open from the home-screen icon. The shell must launch standalone (no Safari chrome).
+3. **Play a file**: tap a torrent card from Библиотека → tap a playable file → Vidstack player opens inline (not forced fullscreen).
+4. **Audio check**: video starts with audio. On Safari, autoplay may require a single user tap; confirm a tap on the centre of the player toggles play and audio is audible.
+5. **Double-tap seek**: double-tap the left third of the player → position jumps back 10s. Double-tap the right third → forward 10s.
+6. **Seek bar**: drag the scrub bar to a new position → playback resumes there.
+7. **Fullscreen**: tap fullscreen button → Safari native fullscreen opens with Vidstack's controls retained.
+8. **Resume**: exit the player, tap the same file again → video resumes from where you left off (toast shows "С MM:SS").
+9. **PiP** (optional, Safari 14+): tap picture-in-picture button → Safari's native PiP overlay appears, playback continues, web UI remains interactive.
+10. **Lampa sync** (optional, if Lampa is installed on the same device): open a TorrServer stream in Lampa → after ≥5s, return to TorrStream shell → "Продолжить просмотр" row shows the updated position.
 
 ## Pathing Checks
 

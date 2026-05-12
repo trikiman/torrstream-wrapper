@@ -65,7 +65,35 @@ Install runtime dependencies with:
 pip install -r requirements.txt
 ```
 
-## Supported Deployment Topologies
+## Production Deployment (Oracle Cloud)
+
+As of 2026-05-12 the production deployment runs on Oracle Cloud Always Free:
+
+| Component | Where |
+|---|---|
+| TorrServer | `vless-x86-2` @ `158.101.214.234:8090`, BasicAuth required |
+| Flask wrapper | same host, `127.0.0.1:5000` |
+| Caddy (TLS termination) | same host, `:80` (redirect) + `:443` (TLS) |
+| Domain | `tv.trikiman.shop` → A record `158.101.214.234` |
+| TLS cert | Let's Encrypt via Caddy auto-HTTPS |
+| Auto-deploy | GitHub webhook → `/api/github-webhook` (HMAC-verified) → `git pull --ff-only` → `systemctl restart flask-wrapper` |
+
+On-box paths:
+
+| Path | Purpose |
+|---|---|
+| `/opt/torrstream/app/` | Flask wrapper git checkout |
+| `/opt/torrstream/venv/` | Python venv (Flask, requests) |
+| `/var/lib/torrserver/` | TorrServer state (config.db, settings.json, accs.db) |
+| `/var/lib/torrserver/accs.db` | Plaintext JSON `{"user": "password"}` for TorrServer auth |
+| `/etc/torrstream/torrserver.env` | Flask env file (root-owned, 600): `TORRSERVER_USER`, `TORRSERVER_PASS`, `GITHUB_WEBHOOK_SECRET`, `TORRSTREAM_SERVICE` |
+| `/etc/caddy/Caddyfile` | Caddy config for `tv.trikiman.shop` |
+| `/var/log/torrstream/` | Combined logs (flask, torrserver, caddy access) |
+| `/etc/systemd/system/{torrserver,flask-wrapper}.service` | Managed systemd units; Caddy uses distro default |
+
+SSH access: `ssh -i <key> ubuntu@158.101.214.234`.
+
+## Local / Reverse-Proxy Deployment
 
 ### 1. Reverse Proxy Under `/app/`
 
@@ -133,5 +161,10 @@ For a quick local pass, start the wrapper and run:
 python scripts/smoke_check.py
 ```
 
-<!-- webhook-test 2026-05-12 03:13:57 -->
-<!-- webhook-test2 03:16:16 -->
+For production verification against the live Oracle deployment:
+
+```bash
+python scripts/smoke_prod.py
+```
+
+Expect `9/9 PASS`.
