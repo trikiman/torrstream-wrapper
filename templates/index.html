@@ -13,8 +13,15 @@
 <link rel="apple-touch-icon" href="static/icons/icon-512.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#e50914">
-<link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vidstack@1.12.13/player/styles/default/theme.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vidstack@1.12.13/player/styles/default/layouts/video.css">
+<script type="module" src="https://cdn.jsdelivr.net/npm/vidstack@1.12.13/cdn/with-layouts/vidstack.js"></script>
 <style>
+/* Prevent Vidstack FOUC until web components upgrade */
+media-player:not(:defined),
+media-provider:not(:defined),
+media-video-layout:not(:defined) { display: block; background: #000; min-height: 200px; }
+
 :root {
   --bg: #0d0d0d;
   --bg2: #1a1a1a;
@@ -443,8 +450,9 @@ main { padding: 0 20px 80px; }
   white-space: nowrap;
 }
 .player-next-btn:hover { background: var(--accent2); }
-.video-wrap { flex: 1; display: flex; align-items: center; justify-content: center; background: #000; }
-video { max-width: 100%; max-height: 100vh; max-height: 100dvh; width: 100%; }
+.video-wrap { flex: 1; display: flex; align-items: center; justify-content: center; background: #000; position: relative; }
+.video-wrap media-player { width: 100%; height: 100%; max-height: 100dvh; }
+.video-wrap video { max-width: 100%; max-height: 100vh; max-height: 100dvh; width: 100%; }
 
 /* ═══ MODAL ═══ */
 .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 2000; align-items: center; justify-content: center; backdrop-filter: blur(6px); }
@@ -592,7 +600,12 @@ video { max-width: 100%; max-height: 100vh; max-height: 100dvh; width: 100%; }
     <button class="player-next-btn" id="playerNextBtn" onclick="playNextEpisode()" style="display:none">Далее →</button>
   </div>
   <div class="video-wrap">
-    <video id="player" controls playsinline webkit-playsinline x-webkit-airplay="allow" preload="metadata"></video>
+    <media-player id="mediaPlayer" playsinline crossorigin aria-label="TorrStream video player">
+      <media-provider>
+        <video id="player" controls playsinline webkit-playsinline x-webkit-airplay="allow" preload="metadata"></video>
+      </media-provider>
+      <media-video-layout></media-video-layout>
+    </media-player>
   </div>
 </div>
 
@@ -611,14 +624,12 @@ video { max-width: 100%; max-height: 100vh; max-height: 100dvh; width: 100%; }
 
 <div class="toast" id="toast"></div>
 
-<script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
 <script>
 const API = "";
 let currentHash = null;
 let currentTorrent = null;
 let currentFiles = [];
 let currentFileIndex = 1;
-let plyr = null;
 let saveTimer = null;
 let searchTimer = null;
 let allTorrents = [];
@@ -880,10 +891,18 @@ function showPlayerError(message, details = "") {
 }
 
 function ensurePlayerElement() {
-  const existing = document.getElementById("player");
+  // Vidstack: <media-player id="mediaPlayer"><media-provider><video id="player"/></media-provider>...
+  let existing = document.getElementById("player");
   if (existing) return existing;
-  document.querySelector(".video-wrap").innerHTML = '<video id="player" controls playsinline webkit-playsinline x-webkit-airplay="allow" preload="metadata"></video>';
-  plyr = null;
+  // If the .video-wrap was blown away (closePlayer rebuilds it), restore the full Vidstack tree.
+  document.querySelector(".video-wrap").innerHTML = `
+    <media-player id="mediaPlayer" playsinline crossorigin aria-label="TorrStream video player">
+      <media-provider>
+        <video id="player" controls playsinline webkit-playsinline x-webkit-airplay="allow" preload="metadata"></video>
+      </media-provider>
+      <media-video-layout></media-video-layout>
+    </media-player>
+  `;
   return document.getElementById("player");
 }
 
@@ -1088,15 +1107,9 @@ async function playFile(hash, filename, index) {
     return;
   }
 
-  if (!plyr) {
-    ensurePlayerElement();
-    plyr = new Plyr("#player", {
-      controls: ["play", "progress", "current-time", "duration", "mute", "volume", "fullscreen"],
-      seekTime: 10,
-      keyboard: { focused: true, global: true },
-    });
-  }
-
+  // Vidstack auto-upgrades the <video> inside <media-player>; no explicit init needed.
+  // We still interact with the underlying <video> via ensurePlayerElement() for compatibility
+  // with the existing event handlers (onloadedmetadata, onpause, onerror, onended).
   const video = ensurePlayerElement();
   video.src = streamUrl;
   video.load();
@@ -1185,8 +1198,14 @@ function closePlayer() {
     video.load();
   }
   document.getElementById("playerOverlay").classList.remove("active");
-  document.querySelector(".video-wrap").innerHTML = '<video id="player" controls playsinline webkit-playsinline x-webkit-airplay="allow" preload="metadata"></video>';
-  plyr = null;
+  document.querySelector(".video-wrap").innerHTML = `
+    <media-player id="mediaPlayer" playsinline crossorigin aria-label="TorrStream video player">
+      <media-provider>
+        <video id="player" controls playsinline webkit-playsinline x-webkit-airplay="allow" preload="metadata"></video>
+      </media-provider>
+      <media-video-layout></media-video-layout>
+    </media-player>
+  `;
   document.body.style.overflow = "";
 
   // If episode panel was open, refresh it
