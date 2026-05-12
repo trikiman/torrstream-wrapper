@@ -1095,13 +1095,13 @@ async function playFile(hash, filename, index) {
   document.getElementById("playerOverlay").classList.add("active");
   document.body.style.overflow = "hidden";
 
-  // Vidstack: set source on <media-player>; it creates the underlying <video> automatically
-  // and fires events on it. Vidstack needs a visible, upgraded <media-player> before it will
-  // insert the <video> — on cold page load the custom element upgrade can take a few hundred
-  // ms, so poll up to ~3s before giving up.
+  // Vidstack: set source on <media-player>. TorrServer file containers include .mkv which
+  // Vidstack would otherwise route to an HLS provider; force the plain HTML5 video provider
+  // by declaring the source with an explicit generic video type. Chrome decodes MKV+H.264
+  // natively via canPlayType().
   ensurePlayerElement(); // makes sure <media-player> exists
   const mediaPlayer = document.getElementById("mediaPlayer");
-  mediaPlayer.src = streamUrl;
+  mediaPlayer.src = { src: streamUrl, type: "video/mp4" };
 
   let video = null;
   for (let tries = 0; tries < 30; tries++) {
