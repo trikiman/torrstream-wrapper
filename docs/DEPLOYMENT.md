@@ -132,3 +132,5 @@ For a quick local pass, start the wrapper and run:
 ```bash
 python scripts/smoke_check.py
 ```
+
+<!-- webhook-test 2026-05-12 03:13:57 -->
