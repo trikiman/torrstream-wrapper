@@ -1,5 +1,5 @@
 // TorrStream Service Worker — offline shell caching
-const CACHE_NAME = "torrstream-v2";
+const CACHE_NAME = "torrstream-v3";
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, "");
 const withBase = (path) => `${SCOPE_PATH}${path}` || path;
 const API_PREFIX = withBase("/api/");
@@ -12,7 +12,24 @@ const SHELL_ASSETS = [
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_ASSETS))
+    caches.open(CACHE_NAME).then(async (cache) => {
+      // Add shell assets individually so one CDN hiccup (opaque response,
+      // 5xx, network error) doesn't abort the whole install. We can still
+      // serve these from network when the cache misses them.
+      await Promise.all(
+        SHELL_ASSETS.map(async (asset) => {
+          try {
+            const req = asset.startsWith("http")
+              ? new Request(asset, { mode: "no-cors" })
+              : asset;
+            await cache.add(req);
+          } catch (err) {
+            // Swallow — offline shell is best-effort.
+            console.warn("[sw] skip cache", asset, err && err.message);
+          }
+        })
+      );
+    })
   );
   self.skipWaiting();
 });
