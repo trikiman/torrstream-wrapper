@@ -340,6 +340,33 @@ def list_files(torrent_hash):
         })
 
     file_stats = result.get("file_stats") or []
+
+    # Warmup fallback: migrated torrents (stat=5, "Torrent in db") sit in TorrServer's
+    # db without being opened — their file_stats is empty until someone pings the /stream
+    # endpoint. On cold start this showed up as "no video files" in the UI for every
+    # torrent until the user manually clicked twice. Probe once with a 0-byte range
+    # request; TorrServer opens the torrent, populates file_stats, then we re-GET.
+    if not file_stats and result.get("hash"):
+        name_parts = (result.get("name") or "movie").replace(" ", "%20")
+        warmup_url = (
+            f"{TORRSERVER}/stream/{name_parts}"
+            f"?link={torrent_hash}&index=1&play"
+        )
+        try:
+            requests.get(
+                warmup_url,
+                auth=TORRSERVER_AUTH,
+                headers={"Range": "bytes=0-0"},
+                timeout=6,
+                stream=True,
+            ).close()
+        except Exception as e:
+            app.logger.warning("list_files warmup failed for %s: %s", torrent_hash[:12], e)
+
+        # Re-fetch after warmup so the caller gets real file_stats this request
+        result = ts_post("/torrents", {"action": "get", "hash": torrent_hash}) or result
+        file_stats = result.get("file_stats") or []
+
     positions = load_positions()
     pos_data = positions.get(torrent_hash, {})
     files_pos = pos_data.get("files", {})
