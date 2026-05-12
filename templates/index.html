@@ -601,9 +601,7 @@ main { padding: 0 20px 80px; }
   </div>
   <div class="video-wrap">
     <media-player id="mediaPlayer" playsinline crossorigin aria-label="TorrStream video player">
-      <media-provider>
-        <video id="player" controls playsinline webkit-playsinline x-webkit-airplay="allow" preload="metadata"></video>
-      </media-provider>
+      <media-provider></media-provider>
       <media-video-layout></media-video-layout>
     </media-player>
   </div>
@@ -891,19 +889,24 @@ function showPlayerError(message, details = "") {
 }
 
 function ensurePlayerElement() {
-  // Vidstack: <media-player id="mediaPlayer"><media-provider><video id="player"/></media-provider>...
-  let existing = document.getElementById("player");
-  if (existing) return existing;
-  // If the .video-wrap was blown away (closePlayer rebuilds it), restore the full Vidstack tree.
-  document.querySelector(".video-wrap").innerHTML = `
-    <media-player id="mediaPlayer" playsinline crossorigin aria-label="TorrStream video player">
-      <media-provider>
-        <video id="player" controls playsinline webkit-playsinline x-webkit-airplay="allow" preload="metadata"></video>
-      </media-provider>
-      <media-video-layout></media-video-layout>
-    </media-player>
-  `;
-  return document.getElementById("player");
+  // Vidstack: <media-player id="mediaPlayer"> creates its own <video> inside <media-provider>.
+  // We expose that underlying <video> so existing event handlers (onloadedmetadata, onpause,
+  // onerror, onended) and the Lampa plugin's findVideo() both work.
+  let mp = document.getElementById("mediaPlayer");
+  if (!mp) {
+    // If the .video-wrap was blown away (closePlayer rebuilds it), restore the Vidstack tree.
+    document.querySelector(".video-wrap").innerHTML = `
+      <media-player id="mediaPlayer" playsinline crossorigin aria-label="TorrStream video player">
+        <media-provider></media-provider>
+        <media-video-layout></media-video-layout>
+      </media-player>
+    `;
+    mp = document.getElementById("mediaPlayer");
+  }
+  // Vidstack inserts its own <video> inside <media-provider>. Find it (may not exist yet
+  // before first source assignment; caller sets mediaPlayer.src then awaits metadata).
+  const vid = mp.querySelector("video");
+  return vid;
 }
 
 // ═══ Open Torrent → Episode Panel or Direct Play ═══
@@ -1107,12 +1110,24 @@ async function playFile(hash, filename, index) {
     return;
   }
 
-  // Vidstack auto-upgrades the <video> inside <media-player>; no explicit init needed.
-  // We still interact with the underlying <video> via ensurePlayerElement() for compatibility
-  // with the existing event handlers (onloadedmetadata, onpause, onerror, onended).
-  const video = ensurePlayerElement();
-  video.src = streamUrl;
-  video.load();
+  // Vidstack: set source on <media-player>; it creates the underlying <video> automatically
+  // and fires events on it. We wait briefly, then grab that <video> to attach handlers.
+  ensurePlayerElement(); // makes sure <media-player> exists
+  const mediaPlayer = document.getElementById("mediaPlayer");
+  mediaPlayer.src = streamUrl;
+
+  // Wait a frame for Vidstack to attach its <video>, then resolve the real element.
+  await new Promise(r => requestAnimationFrame(r));
+  let video = mediaPlayer.querySelector("video");
+  if (!video) {
+    // Fallback: wait a bit longer
+    await new Promise(r => setTimeout(r, 200));
+    video = mediaPlayer.querySelector("video");
+  }
+  if (!video) {
+    showPlayerError("Ошибка плеера", "Не удалось инициализировать Vidstack.");
+    return;
+  }
 
   // Restore saved position
   try {
@@ -1187,22 +1202,22 @@ async function savePos(hash, index, currentTime, duration) {
 }
 
 function closePlayer() {
-  const video = document.getElementById("player");
+  const mp = document.getElementById("mediaPlayer");
+  const video = mp ? mp.querySelector("video") : null;
   if (saveTimer) clearInterval(saveTimer);
   if (video && video.currentTime > 5) {
     savePos(currentHash, currentFileIndex, video.currentTime, video.duration);
   }
   if (video) {
-    video.pause();
-    video.removeAttribute("src");
-    video.load();
+    try { video.pause(); } catch(e) {}
+  }
+  if (mp) {
+    try { mp.src = ""; } catch(e) {}
   }
   document.getElementById("playerOverlay").classList.remove("active");
   document.querySelector(".video-wrap").innerHTML = `
     <media-player id="mediaPlayer" playsinline crossorigin aria-label="TorrStream video player">
-      <media-provider>
-        <video id="player" controls playsinline webkit-playsinline x-webkit-airplay="allow" preload="metadata"></video>
-      </media-provider>
+      <media-provider></media-provider>
       <media-video-layout></media-video-layout>
     </media-player>
   `;
