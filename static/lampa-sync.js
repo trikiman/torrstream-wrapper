@@ -132,34 +132,77 @@
         if (resumeAttempted) return;
         resumeAttempted = true;
         fetchResume(parsed).then(function (data) {
-            if (!data || !data.ok) return;
+            if (!data || !data.ok) {
+                log('no saved position for', parsed);
+                return;
+            }
             var saved = parseInt(data.position, 10) || 0;
-            if (saved < 10) return;
+            if (saved < 10) {
+                log('saved position too small to bother:', saved);
+                return;
+            }
+            log('saved position:', saved, 'looking for video element to seek...');
+
+            var seekedOnce = false;
             var attempts = 0;
+            var maxAttempts = 240; // up to 60s — generous for slow streams
+            var lastFightAt = 0;
+            var lastFightCount = 0;
+
+            function performSeek(v) {
+                if (saved >= v.duration - 5) return false;
+                try {
+                    v.currentTime = saved;
+                    seekedOnce = true;
+                    log('seek -> ', saved, 'of', v.duration);
+                    if (window.Lampa && Lampa.Noty && typeof Lampa.Noty.show === 'function') {
+                        var mm = Math.floor(saved / 60);
+                        var ss = String(Math.floor(saved % 60));
+                        if (ss.length < 2) ss = '0' + ss;
+                        Lampa.Noty.show('TorrStream: continued from ' + mm + ':' + ss);
+                    }
+                    return true;
+                } catch (e) {
+                    log('seek failed', e);
+                    return false;
+                }
+            }
+
             var seeker = setInterval(function () {
                 attempts++;
-                // Bail if the user has navigated away from this torrent/file.
                 if (!current || current.hash !== parsed.hash || current.file_index !== parsed.file_index) {
                     clearInterval(seeker);
                     return;
                 }
                 var v = findVideo();
-                if (v && isFinite(v.duration) && v.duration > 0) {
-                    clearInterval(seeker);
-                    if (saved < v.duration - 5 && Math.abs(v.currentTime - saved) > 3) {
-                        try {
-                            v.currentTime = saved;
-                            log('resumed at', saved, 'of', v.duration);
-                            if (window.Lampa && Lampa.Noty && typeof Lampa.Noty.show === 'function') {
-                                var mm = Math.floor(saved / 60);
-                                var ss = String(Math.floor(saved % 60));
-                                if (ss.length < 2) ss = '0' + ss;
-                                Lampa.Noty.show('TorrStream: continued from ' + mm + ':' + ss);
-                            }
-                        } catch (e) { log('seek failed', e); }
+                if (!v || !isFinite(v.duration) || v.duration <= 0) {
+                    if (attempts > maxAttempts) clearInterval(seeker);
+                    return;
+                }
+
+                if (!seekedOnce) {
+                    // First seek: only if Lampa hasn't already restored to roughly the right time
+                    if (Math.abs(v.currentTime - saved) > 5) {
+                        performSeek(v);
+                    } else {
+                        log('Lampa already at correct position', v.currentTime, 'vs', saved);
+                        seekedOnce = true;
+                    }
+                } else {
+                    // Already seeked once. Watch for Lampa fighting us back to 0/stale.
+                    // If currentTime drops near 0 within a few seconds of our seek, re-seek.
+                    if (v.currentTime < Math.min(15, saved - 30) && lastFightCount < 3) {
+                        var now = Date.now();
+                        if (now - lastFightAt > 800) {
+                            log('Lampa fought back to', v.currentTime, ' — re-seeking');
+                            lastFightAt = now;
+                            lastFightCount++;
+                            performSeek(v);
+                        }
                     }
                 }
-                if (attempts > 40) clearInterval(seeker);
+
+                if (attempts > maxAttempts) clearInterval(seeker);
             }, 250);
         });
     }
