@@ -1,14 +1,14 @@
 // TorrStream Service Worker — offline shell caching
-const CACHE_NAME = "torrstream-v4";
+const CACHE_NAME = "torrstream-v5";
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, "");
 const withBase = (path) => `${SCOPE_PATH}${path}` || path;
 const API_PREFIX = withBase("/api/");
 const SHELL_ASSETS = [
   withBase("/") || "/",
   withBase("/static/icons/icon-512.png"),
-  "https://cdn.jsdelivr.net/npm/vidstack@1.12.13/player/styles/default/theme.css",
-  "https://cdn.jsdelivr.net/npm/vidstack@1.12.13/player/styles/default/layouts/video.css",
-  "https://cdn.jsdelivr.net/npm/vidstack@1.12.13/cdn/with-layouts/vidstack.js",
+  withBase("/static/vidstack/css/theme.css"),
+  withBase("/static/vidstack/css/video.css"),
+  withBase("/static/vidstack/vidstack.js"),
 ];
 
 self.addEventListener("install", (e) => {
