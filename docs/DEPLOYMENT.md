@@ -73,9 +73,28 @@ As of 2026-05-12 the production deployment runs on Oracle Cloud Always Free:
 | TorrServer | `vless-x86-2` @ `158.101.214.234:8090`, BasicAuth required |
 | Flask wrapper | same host, `127.0.0.1:5000` |
 | Caddy (TLS termination) | same host, `:80` (redirect) + `:443` (TLS) |
-| Domain | `tv.trikiman.shop` → A record `158.101.214.234` |
-| TLS cert | Let's Encrypt via Caddy auto-HTTPS |
+| Web UI domain | `tv.trikiman.shop` → A record `158.101.214.234` → Caddy → Flask wrapper (`127.0.0.1:5000`) |
+| TorrServer domain (for Lampa / TV clients) | `ts.trikiman.shop` → A record `158.101.214.234` → Caddy → TorrServer (`127.0.0.1:8090`) |
+| TLS cert | Let's Encrypt via Caddy auto-HTTPS (both subdomains) |
 | Auto-deploy | GitHub webhook → `/api/github-webhook` (HMAC-verified) → `git pull --ff-only` → `systemctl restart flask-wrapper` |
+
+### Why two subdomains
+
+`tv.trikiman.shop` is the web UI for humans. `ts.trikiman.shop` exposes TorrServer's raw HTTP API for clients like Lampa that talk directly to TorrServer (not to the Flask wrapper). Both terminate TLS at Caddy, which puts TorrServer behind HTTPS and lets it benefit from HTTP/2 and CDN-friendly behavior on Russian DPI-throttled networks. The two domains share the same origin server but keep Lampa's TorrServer traffic off the Flask wrapper so range requests for video don't route through Python.
+
+### TorrServer settings (v2.1.1)
+
+`/var/lib/torrserver/settings.json`:
+
+| Key | Value | Why |
+|---|---|---|
+| `TorrentDisconnectTimeout` | `300` (s) | Stops Lampa seeing "connection drop" when buffering pauses exceed the old 30s default |
+| `ReaderReadAHead` | `95` | Default; preserves prefetch window |
+| `PreloadCache` | `50` (MB) | Default; preserves initial buffer |
+| `CacheSize` | `67108864` (64 MB) | Default |
+| `ConnectionsLimit` | `25` | Default |
+
+Settings changed via `POST /settings {"action":"set","sets":{...}}` must send the **full settings block** — TorrServer's `set` replaces, not merges.
 
 On-box paths:
 
@@ -86,7 +105,7 @@ On-box paths:
 | `/var/lib/torrserver/` | TorrServer state (config.db, settings.json, accs.db) |
 | `/var/lib/torrserver/accs.db` | Plaintext JSON `{"user": "password"}` for TorrServer auth |
 | `/etc/torrstream/torrserver.env` | Flask env file (root-owned, 600): `TORRSERVER_USER`, `TORRSERVER_PASS`, `GITHUB_WEBHOOK_SECRET`, `TORRSTREAM_SERVICE` |
-| `/etc/caddy/Caddyfile` | Caddy config for `tv.trikiman.shop` |
+| `/etc/caddy/Caddyfile` | Caddy config for `tv.trikiman.shop` (→ Flask) and `ts.trikiman.shop` (→ TorrServer) |
 | `/var/log/torrstream/` | Combined logs (flask, torrserver, caddy access) |
 | `/etc/systemd/system/{torrserver,flask-wrapper}.service` | Managed systemd units; Caddy uses distro default |
 
