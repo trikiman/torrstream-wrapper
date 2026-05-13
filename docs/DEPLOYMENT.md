@@ -96,6 +96,29 @@ As of 2026-05-12 the production deployment runs on Oracle Cloud Always Free:
 
 Settings changed via `POST /settings {"action":"set","sets":{...}}` must send the **full settings block** — TorrServer's `set` replaces, not merges.
 
+### BitTorrent peer port (critical for throughput)
+
+TorrServer's peer port is `22115` (both TCP and UDP/uTP). **Both firewall layers must allow inbound on this port** or swarm throughput collapses (peers can't connect in → only passive leeching → ~10 B/s).
+
+| Layer | How |
+|---|---|
+| Oracle Cloud Security List (`vless-vcn` → Default Security List) | Add ingress rules: TCP 0.0.0.0/0 → 22115; UDP 0.0.0.0/0 → 22115 |
+| Ubuntu iptables INPUT | Scripted by `scripts/_open_bt_peer_port.sh` — persisted to `/etc/iptables/rules.v4` |
+
+Verify from outside:
+
+```bash
+python -c "import socket, time; s=socket.socket(); s.settimeout(6); t=time.time(); r=s.connect_ex(('158.101.214.234',22115)); print('tcp 22115:', 'open' if r==0 else 'blocked')"
+```
+
+Observed before vs. after on the Prophet torrent (14 GB, 5 nominal seeders):
+
+| Metric | Port 22115 blocked | Port 22115 open |
+|---|---|---|
+| Active peers | 7 (passive) | 25 (bidirectional) |
+| Peak download | ~10 B/s | ~52 Mbit/s (6 MB/s) |
+| Preload cache fill | never | ~60 MB in 10s |
+
 On-box paths:
 
 | Path | Purpose |
