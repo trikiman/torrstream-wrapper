@@ -33,35 +33,69 @@ OUT.mkdir(parents=True, exist_ok=True)
 (OUT / "css").mkdir(exist_ok=True)
 
 
-def fetch(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "vidstack-mirror/1.0"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return r.read()
+def fetch(url: str, retries: int = 3) -> bytes:
+    """Fetch with simple retry/backoff because jsDelivr occasionally rate-limits."""
+    last_err: Exception | None = None
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "vidstack-mirror/1.0"})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return r.read()
+        except Exception as e:
+            last_err = e
+            if attempt < retries - 1:
+                import time
+                time.sleep(2 ** attempt)
+    raise last_err  # type: ignore[misc]
 
 
 def walk_chunks(js_text: str) -> list[str]:
-    """Return relative chunk paths referenced by `import "..."` statements."""
-    return re.findall(r'import\s*"([^"]+)"', js_text)
+    """Return relative paths referenced by both static `import "..."` and dynamic `import("...")` calls."""
+    static_imports = re.findall(r'import\s*"([^"]+)"', js_text)
+    dynamic_imports = re.findall(r'import\(\s*"([^"]+)"\s*\)', js_text)
+    return static_imports + dynamic_imports
 
 
-def rewrite(js_text: str) -> str:
-    """Rewrite imports so:
+def rewrite(js_text: str, source_dir: str = "root") -> str:
+    """Rewrite both static and dynamic imports so:
     - ./chunks/X.js -> /static/vidstack/chunks/X.js
     - ./providers/X.js -> /static/vidstack/providers/X.js
+    - ../chunks/X.js -> /static/vidstack/chunks/X.js
+    - ../providers/X.js -> /static/vidstack/providers/X.js
+    - bare ./vidstack-X.js: depends on source_dir (providers vs chunks)
     - https://cdn.vidstack.io/icons -> /static/vidstack/icons (we'll noop that)
+    - https://cdn.jsdelivr.net/.../media-captions/... -> noop (rare path; not used by mp4)
     """
-    def repl(m: re.Match) -> str:
-        path = m.group(1)
-        if path.startswith("./chunks/"):
-            return f'import"/static/vidstack/chunks/{path.split("/")[-1]}"'
-        if path.startswith("./providers/"):
-            return f'import"/static/vidstack/providers/{path.split("/")[-1]}"'
+    def remap(path: str) -> str | None:
+        if path.endswith(".js"):
+            fname = path.rsplit("/", 1)[-1]
+            if "/chunks/" in path:
+                return f"/static/vidstack/chunks/{fname}"
+            if "/providers/" in path:
+                return f"/static/vidstack/providers/{fname}"
+            # Bare relative import like "./vidstack-XXX.js" — context-dependent
+            if re.match(r"^\.{1,2}/vidstack-[A-Za-z0-9_-]+\.js$", path):
+                if source_dir == "providers":
+                    return f"/static/vidstack/providers/{fname}"
+                return f"/static/vidstack/chunks/{fname}"
         if path == ICONS_HOST or path.startswith("https://cdn.vidstack.io/"):
-            # Drop icons import entirely — fallback SVGs ship with the layout template
-            return 'import"/static/vidstack/icons-noop.js"'
-        return m.group(0)
+            return "/static/vidstack/icons-noop.js"
+        if path.startswith("https://cdn.jsdelivr.net/"):
+            # External captions library — noop unless we actually need it
+            return "/static/vidstack/icons-noop.js"
+        return None
 
-    return re.sub(r'import\s*"([^"]+)"', repl, js_text)
+    def repl_static(m: re.Match) -> str:
+        new = remap(m.group(1))
+        return f'import"{new}"' if new else m.group(0)
+
+    def repl_dynamic(m: re.Match) -> str:
+        new = remap(m.group(1))
+        return f'import("{new}")' if new else m.group(0)
+
+    js_text = re.sub(r'import\s*"([^"]+)"', repl_static, js_text)
+    js_text = re.sub(r'import\(\s*"([^"]+)"\s*\)', repl_dynamic, js_text)
+    return js_text
 
 
 def save(rel_path: str, data: bytes) -> None:
@@ -75,75 +109,98 @@ def main() -> None:
     # Icon noop so rewritten imports don't 404 — an empty module is enough
     save("icons-noop.js", b"// vidstack icons placeholder (self-host noop)\n")
 
+    queue_chunks: set[str] = set()
+    queue_providers: set[str] = set()
+    fetched: set[str] = set()  # already-downloaded URLs
+
+    def classify(imp: str, source_dir: str = "root") -> None:
+        """Add imp to the right queue based on its path components.
+
+        source_dir = "providers" means relative `./vidstack-X.js` is a sibling provider;
+        source_dir = "chunks" means relative `./vidstack-X.js` is a sibling chunk;
+        source_dir = "root" means we're parsing main vidstack.js.
+        """
+        if not imp.endswith(".js"):
+            return
+        fname = imp.rsplit("/", 1)[-1]
+        if "/providers/" in imp:
+            queue_providers.add(fname)
+        elif "/chunks/" in imp:
+            queue_chunks.add(fname)
+        elif re.match(r"^\.{1,2}/vidstack-[A-Za-z0-9_-]+\.js$", imp):
+            # Bare relative import: classify by the file's own directory
+            if source_dir == "providers":
+                queue_providers.add(fname)
+            else:
+                queue_chunks.add(fname)
+
     # 1. Main entry
     main_url = f"{BASE}/cdn/with-layouts/vidstack.js"
     print(f"fetching {main_url}")
     main_body = fetch(main_url).decode()
-    chunks_to_fetch = set()
     for imp in walk_chunks(main_body):
-        if imp.startswith("./chunks/"):
-            chunks_to_fetch.add(imp.split("/")[-1])
-    rewritten = rewrite(main_body)
-    save("vidstack.js", rewritten.encode())
+        classify(imp, source_dir="root")
+    save("vidstack.js", rewrite(main_body, source_dir="root").encode())
+    fetched.add("vidstack.js")
 
-    # 2. Recursively walk chunks — each chunk can import more chunks or provider files
-    all_chunks = set()
-    all_providers = set()
-    queue = list(chunks_to_fetch)
-    while queue:
-        name = queue.pop()
-        if name in all_chunks:
-            continue
-        all_chunks.add(name)
+    # 2. BFS over chunks (each chunk can pull more chunks AND providers)
+    while True:
+        pending = {n for n in queue_chunks if f"chunks/{n}" not in fetched}
+        if not pending:
+            break
+        name = pending.pop()
+        rel = f"chunks/{name}"
         url = f"{BASE}/cdn/with-layouts/chunks/{name}"
         try:
             body = fetch(url).decode()
         except Exception as e:
             print(f"  ! failed chunk {name}: {e}")
+            fetched.add(rel)
             continue
         for imp in walk_chunks(body):
-            if imp.startswith("./") and imp.endswith(".js"):
-                fname = imp.split("/")[-1]
-                if "/chunks/" in imp:
-                    if fname not in all_chunks:
-                        queue.append(fname)
-                elif "/providers/" in imp:
-                    all_providers.add(fname)
-            elif imp.startswith("../providers/"):
-                all_providers.add(imp.split("/")[-1])
-        save(f"chunks/{name}", rewrite(body).encode())
+            classify(imp, source_dir="chunks")
+        save(rel, rewrite(body, source_dir="chunks").encode())
+        fetched.add(rel)
 
-    # 3. Fetch providers. Their chunks often re-reference chunks already pulled.
-    for name in list(all_providers):
+    # 3. Providers (each provider can pull more chunks AND sibling providers)
+    while True:
+        pending = {n for n in queue_providers if f"providers/{n}" not in fetched}
+        if not pending:
+            break
+        name = pending.pop()
+        rel = f"providers/{name}"
         url = f"{BASE}/cdn/with-layouts/providers/{name}"
         try:
             body = fetch(url).decode()
         except Exception as e:
             print(f"  ! failed provider {name}: {e}")
+            fetched.add(rel)
             continue
         for imp in walk_chunks(body):
-            if imp.startswith("../chunks/"):
-                fname = imp.split("/")[-1]
-                if fname not in all_chunks:
-                    # pull it
-                    try:
-                        chunk_body = fetch(f"{BASE}/cdn/with-layouts/chunks/{fname}").decode()
-                        all_chunks.add(fname)
-                        save(f"chunks/{fname}", rewrite(chunk_body).encode())
-                    except Exception as e:
-                        print(f"  ! failed late chunk {fname}: {e}")
-        # Providers reference chunks with ../chunks/X.js — rewrite to /static/vidstack/chunks/X.js
-        def repl_prov(m: re.Match) -> str:
-            path = m.group(1)
-            if path.startswith("../chunks/"):
-                return f'import"/static/vidstack/chunks/{path.split("/")[-1]}"'
-            if path.startswith("./") and "/chunks/" in path:
-                return f'import"/static/vidstack/chunks/{path.split("/")[-1]}"'
-            return m.group(0)
-        body = re.sub(r'import\s*"([^"]+)"', repl_prov, body)
-        save(f"providers/{name}", body.encode())
+            classify(imp, source_dir="providers")
+        save(rel, rewrite(body, source_dir="providers").encode())
+        fetched.add(rel)
 
-    # 4. CSS
+    # 4. Drain any chunks newly discovered while pulling providers
+    while True:
+        pending = {n for n in queue_chunks if f"chunks/{n}" not in fetched}
+        if not pending:
+            break
+        name = pending.pop()
+        rel = f"chunks/{name}"
+        url = f"{BASE}/cdn/with-layouts/chunks/{name}"
+        try:
+            body = fetch(url).decode()
+        except Exception as e:
+            print(f"  ! failed late chunk {name}: {e}")
+            fetched.add(rel)
+            continue
+        for imp in walk_chunks(body):
+            classify(imp, source_dir="chunks")
+        save(rel, rewrite(body, source_dir="chunks").encode())
+        fetched.add(rel)
+
+    # 5. CSS
     for css_name, cdn_rel in [
         ("theme.css", "player/styles/default/theme.css"),
         ("video.css", "player/styles/default/layouts/video.css"),
@@ -153,7 +210,9 @@ def main() -> None:
         body = fetch(url)
         save(f"css/{css_name}", body)
 
-    print(f"\nDone. {1 + len(all_chunks) + len(all_providers)} JS files, 2 CSS files.")
+    chunks_count = sum(1 for f in fetched if f.startswith("chunks/"))
+    providers_count = sum(1 for f in fetched if f.startswith("providers/"))
+    print(f"\nDone. main + {chunks_count} chunks + {providers_count} providers + 2 CSS files.")
 
 
 if __name__ == "__main__":

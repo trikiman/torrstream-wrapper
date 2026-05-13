@@ -1,5 +1,5 @@
 // TorrStream Service Worker — offline shell caching
-const CACHE_NAME = "torrstream-v5";
+const CACHE_NAME = "torrstream-v6";
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, "");
 const withBase = (path) => `${SCOPE_PATH}${path}` || path;
 const API_PREFIX = withBase("/api/");
