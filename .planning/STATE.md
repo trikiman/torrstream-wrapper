@@ -58,12 +58,31 @@ Progress: [██████████] 100%
 - **PROD-01..05**: Base path config, user auth, richer metadata, chapters, subtitles in Vidstack.
 - **ENG-01/02**: Module split + pinned dependency manifest.
 
+### Pending Todos (8) — captured 2026-05-14 from E2E feature audit
+
+UX gaps:
+- `add-download-ui-per-file` — README claims downloading; UI has zero affordance for it
+- `file-picker-modal-multi-file-torrents` — single-click goes straight to player; no way to pick non-default file
+- `fix-slow-theme-transition` — theme toggle takes ~1.4s vs declared 250ms
+
+API hygiene:
+- `return-404-for-unknown-hash` — `/api/files`, `/api/position` GET, `/api/remove` all return 200 for nonexistent hashes
+- `reject-malformed-json-on-position-post` — `silent=True` swallows parse errors and returns "ok:true"
+- `cors-headers-on-static` — `/static/*` lacks CORS headers; cross-origin `fetch()` fails (script tag still works)
+- `validate-hash-format` — no infohash validation at route boundary; allows junk keys into `positions.json`
+
+Foundation:
+- `e2e-test-harness` — promote the 25-check audit into a runnable pytest + Playwright suite; current `smoke_prod.py` is too thin
+
+Files in `.planning/todos/pending/`. Use `/gsd-check-todos` to triage,
+`/gsd-review-backlog` to promote into v2.2.
+
 ## Blockers / Concerns
 
-None. v2.1 is done.
+None. v2.1 is done. v2.2 scope captured as todos above; not yet planned.
 
 ## Session Continuity
 
-Last session: 2026-05-12 23:55 UTC
-Stopped at: v2.1 milestone complete; ready to archive or start v2.2
+Last session: 2026-05-14 23:30 UTC (E2E feature audit + todo capture)
+Stopped at: 8 audit-driven todos in `.planning/todos/pending/`; ready to scope v2.2
 Resume file: None
