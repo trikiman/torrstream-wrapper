@@ -30,6 +30,10 @@ RECENT_SEARCHES_LIMIT = 20
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".m4v", ".mov", ".wmv", ".ts", ".webm"}
 
+# Infohash validation: SHA-1 (40 hex chars) or BTv2 SHA-256 (64 hex chars).
+# Normalised to lowercase before any disk write or upstream call.
+HASH_RE = re.compile(r"^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$")
+
 
 # ─── Positions DB (file-based) ───────────────────────────────────────────────
 def load_positions():
@@ -48,14 +52,16 @@ def load_positions():
     if POSITIONS_FILE.exists():
         try:
             data = json.loads(POSITIONS_FILE.read_text(encoding="utf-8"))
-            # Migrate old flat format → new per-file format
+            # Migrate old flat format → new per-file format AND
+            # normalise hash keys to lowercase (case-insensitive infohashes).
             migrated = {}
             for h, v in data.items():
+                key = h.lower() if isinstance(h, str) else h
                 if "files" in v:
-                    migrated[h] = v
+                    migrated[key] = v
                 else:
                     # Old format: {position, duration, updated}
-                    migrated[h] = {
+                    migrated[key] = {
                         "files": {"1": {"position": v.get("position", 0), "duration": v.get("duration", 0), "updated": v.get("updated", 0)}},
                         "last_file_index": 1,
                         "updated": v.get("updated", 0),
@@ -141,6 +147,37 @@ def ts_probe():
     except Exception as e:
         app.logger.warning("TorrServer probe failed: %s", e)
         return {"ok": False, "torrent_count": 0, "error": str(e)}
+
+
+# ─── Hash validation helpers (v2.2 API hygiene) ──────────────────────────────
+def _validate_hash(torrent_hash):
+    """Validate an infohash from a route param.
+
+    Returns:
+        (lowercase_hash, None) if valid
+        (None, (jsonify, 400)) otherwise — caller must `return err`.
+    """
+    if not torrent_hash or not HASH_RE.match(torrent_hash):
+        return None, (jsonify({"ok": False, "error": "invalid hash"}), 400)
+    return torrent_hash.lower(), None
+
+
+def _torrent_exists(torrent_hash):
+    """Check if TorrServer knows this hash.
+
+    Returns:
+        True  — torrent is in TS library
+        False — TS reachable but torrent not present (genuine 404)
+        None  — TS unreachable; cannot tell (caller should fall back to non-404 behavior)
+    """
+    result = ts_post("/torrents", {"action": "get", "hash": torrent_hash})
+    if result is not None and result.get("hash"):
+        return True
+    # ts_post returned None (failure) or empty — distinguish "TS down" from "not found"
+    probe = ts_probe()
+    if not probe.get("ok"):
+        return None
+    return False
 
 
 def normalize_torrent_link(raw_link):
@@ -321,23 +358,31 @@ def status():
 @app.route("/api/files/<torrent_hash>")
 def list_files(torrent_hash):
     """Get file list for a torrent, enriched with viewed + position data."""
+    torrent_hash, err = _validate_hash(torrent_hash)
+    if err:
+        return err
+
     result = ts_post("/torrents", {"action": "get", "hash": torrent_hash})
     if result is None:
         probe = ts_probe()
-        return jsonify({
+        # TS reachable but no such torrent → genuine 404. TS unreachable → 200 with state
+        # so the existing UI's "upstream unavailable" empty state still renders.
+        is_not_found = probe.get("ok") is True
+        body = {
             "ok": False,
-            "error": probe.get("error") or "torrent not found or file lookup failed",
+            "error": probe.get("error") or "torrent not found",
             "file_stats": [],
             "last_file_index": 0,
             "viewed_indices": [],
             "diagnostics": {
                 **probe,
-                "state": "upstream_unavailable" if not probe.get("ok") else "file_lookup_failed",
+                "state": "not_found" if is_not_found else "upstream_unavailable",
                 "playable_count": 0,
                 "total_file_count": 0,
                 "has_playable_files": False,
             },
-        })
+        }
+        return jsonify(body), (404 if is_not_found else 200)
 
     file_stats = result.get("file_stats") or []
 
@@ -428,14 +473,41 @@ def _cors_position(response):
 
 @app.route("/api/position/<torrent_hash>", methods=["OPTIONS"])
 def position_preflight(torrent_hash):
+    # Preflight always succeeds — the actual GET/POST will validate the hash.
+    # Returning 400 on preflight would break CORS for clients that haven't
+    # verified the hash yet (browsers send OPTIONS before the real call).
     return ("", 204)
 
 
 @app.route("/api/position/<torrent_hash>", methods=["GET"])
 def get_position(torrent_hash):
-    """Get watch position for a torrent (with optional file_index query param)."""
+    """Get watch position for a torrent (with optional file_index query param).
+
+    Returns 404 only when the hash is unknown to BOTH the wrapper (no entry in
+    positions.json) AND TorrServer's library. If the torrent IS known to TS but
+    has no recorded position, returns 200 with zeros — preserves resume-on-play UX.
+    """
+    torrent_hash, err = _validate_hash(torrent_hash)
+    if err:
+        return err
+
     positions = load_positions()
-    pos_data = positions.get(torrent_hash, {})
+    pos_data = positions.get(torrent_hash)
+
+    if pos_data is None:
+        # Cache miss — distinguish "never watched a known torrent" from "unknown hash"
+        exists = _torrent_exists(torrent_hash)
+        if exists is False:
+            return jsonify({
+                "ok": False,
+                "error": "unknown hash",
+                "position": 0,
+                "duration": 0,
+                "last_file_index": 1,
+            }), 404
+        # exists is True (known but no position) or None (TS unreachable) → fall through with zeros
+        pos_data = {}
+
     file_index = request.args.get("file_index", str(pos_data.get("last_file_index", 1)))
 
     files_pos = pos_data.get("files", {})
@@ -452,6 +524,10 @@ def get_position(torrent_hash):
 @app.route("/api/position/<torrent_hash>", methods=["POST"])
 def save_position(torrent_hash):
     """Save watch position. Body: {position, duration, file_index}."""
+    torrent_hash, err = _validate_hash(torrent_hash)
+    if err:
+        return err
+
     body = request.get_json(force=True, silent=True) or {}
     try:
         pos = max(0, int(body.get("position", 0)))
@@ -571,15 +647,33 @@ def add_torrent():
 
 @app.route("/api/remove/<torrent_hash>", methods=["DELETE"])
 def remove_torrent(torrent_hash):
-    """Remove a torrent."""
-    result = ts_post("/torrents", {"action": "rem", "hash": torrent_hash})
-    # Also clean up positions
+    """Remove a torrent. 404 when hash is unknown to both positions and TorrServer."""
+    torrent_hash, err = _validate_hash(torrent_hash)
+    if err:
+        return err
+
     positions = load_positions()
     had_position = torrent_hash in positions
+
+    # Existence check BEFORE remove — distinguish "removed" from "wasn't there"
+    exists = _torrent_exists(torrent_hash)
+    if not had_position and exists is False:
+        return jsonify({
+            "ok": False,
+            "error": "unknown hash",
+            "removed_positions": False,
+        }), 404
+
+    result = ts_post("/torrents", {"action": "rem", "hash": torrent_hash})
     positions.pop(torrent_hash, None)
     save_positions(positions)
     if result is None:
-        return jsonify({"ok": False, "error": "torrserver remove failed", "removed_positions": had_position})
+        # Distinguish from 404: torrent existed but TS rem failed → 502
+        return jsonify({
+            "ok": False,
+            "error": "torrserver remove failed",
+            "removed_positions": had_position,
+        }), 502
     return jsonify({"ok": True, "removed_positions": had_position})
 
 
