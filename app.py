@@ -461,13 +461,24 @@ def list_files(torrent_hash):
 
 
 @app.after_request
-def _cors_position(response):
-    """Allow cross-origin position reads/writes (Lampa plugin lives on lampa.mx)."""
-    if request.path.startswith("/api/position/"):
+def _cors_headers(response):
+    """Allow cross-origin reads/writes for endpoints consumed by the Lampa plugin.
+
+    - /api/position/* — Lampa plugin (lampa.mx) reads/writes resume state.
+    - /static/* — Lampa-side fetch() of the plugin source for version probes,
+      hot-reload, etc. The script tag itself works without CORS, but explicit
+      `fetch(... , { mode: 'cors' })` requires the header.
+    """
+    path = request.path
+    if path.startswith("/api/position/"):
         response.headers.setdefault("Access-Control-Allow-Origin", "*")
         response.headers.setdefault("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         response.headers.setdefault("Access-Control-Allow-Headers", "Content-Type")
         response.headers.setdefault("Access-Control-Max-Age", "600")
+    elif path.startswith("/static/"):
+        # Static assets are public read-only; safe to allow any origin.
+        response.headers.setdefault("Access-Control-Allow-Origin", "*")
+        response.headers.setdefault("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
     return response
 
 
@@ -523,14 +534,28 @@ def get_position(torrent_hash):
 
 @app.route("/api/position/<torrent_hash>", methods=["POST"])
 def save_position(torrent_hash):
-    """Save watch position. Body: {position, duration, file_index}."""
+    """Save watch position. Body: {position, duration, file_index}.
+
+    Rejects malformed JSON with 400 (was: silently 200 because get_json had silent=True).
+    Requires `position` to be a non-negative number; missing/non-numeric → 400.
+    """
     torrent_hash, err = _validate_hash(torrent_hash)
     if err:
         return err
 
-    body = request.get_json(force=True, silent=True) or {}
+    # Parse body — explicit 400 on malformed JSON instead of silent fallback.
     try:
-        pos = max(0, int(body.get("position", 0)))
+        body = request.get_json(force=True, silent=False)
+    except Exception:
+        return jsonify({"ok": False, "error": "invalid JSON"}), 400
+    if body is None or not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "invalid JSON"}), 400
+
+    if "position" not in body:
+        return jsonify({"ok": False, "error": "missing position"}), 400
+
+    try:
+        pos = max(0, int(body["position"]))
         dur = max(0, int(body.get("duration", 0)))
         file_index_int = int(body.get("file_index", 1))
     except (TypeError, ValueError):
