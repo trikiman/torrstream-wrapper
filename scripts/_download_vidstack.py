@@ -80,9 +80,13 @@ def rewrite(js_text: str, source_dir: str = "root") -> str:
                 return f"/static/vidstack/chunks/{fname}"
         if path == ICONS_HOST or path.startswith("https://cdn.vidstack.io/"):
             return "/static/vidstack/icons-noop.js"
-        if path.startswith("https://cdn.jsdelivr.net/"):
-            # External captions library — noop unless we actually need it
-            return "/static/vidstack/icons-noop.js"
+        # NOTE: do NOT noop https://cdn.jsdelivr.net/.../media-captions/...
+        # That library IS used at runtime when subtitle/caption tracks are present
+        # (and the constructor check inside Vidstack throws "t is not a constructor"
+        # if we hand it our empty icons-noop module). The captions chunk is small
+        # and loads from jsDelivr's same CDN that the rest of Vidstack came from
+        # originally; users who need it pay one extra DNS+TLS but it doesn't block
+        # video playback.
         return None
 
     def repl_static(m: re.Match) -> str:
@@ -200,7 +204,62 @@ def main() -> None:
         save(rel, rewrite(body, source_dir="chunks").encode())
         fetched.add(rel)
 
-    # 5. CSS
+    # 5. Self-host the media-captions library too. Vidstack lazy-loads it from
+    # cdn.jsdelivr.net as a dynamic import — when subtitles are referenced in
+    # any code path. We mirror it under captions/ and rewrite the absolute
+    # jsdelivr URL inside the bundle to point local. This avoids:
+    # (a) DPI-throttled jsdelivr fetches on Russian networks,
+    # (b) the "t is not a constructor" runtime error if jsdelivr is offline.
+    captions_base = "https://cdn.jsdelivr.net/npm/media-captions@next/dist"
+    captions_queue = ["prod.js"]
+    captions_fetched: set[str] = set()
+    while captions_queue:
+        rel = captions_queue.pop()
+        if rel in captions_fetched:
+            continue
+        captions_fetched.add(rel)
+        url = f"{captions_base}/{rel}"
+        try:
+            print(f"fetching {url}")
+            body = fetch(url).decode()
+        except Exception as e:
+            print(f"  ! failed captions {rel}: {e}")
+            continue
+        # Find relative imports inside this captions file
+        for m in re.finditer(r'["\']\.{1,2}/([^"\']+\.js)["\']', body):
+            sub = m.group(1)
+            sub_path = re.sub(r'^[^/]*/', '', sub) if '/' in m.group(0)[2:m.start(1)+2] else sub
+            # Compute absolute target relative to current file
+            base_dir = "/".join(rel.split("/")[:-1])
+            if m.group(0).startswith('"./') or m.group(0).startswith("'./"):
+                target = f"{base_dir}/{sub}" if base_dir else sub
+            else:  # ../
+                target = sub
+            target = target.lstrip("/")
+            if target not in captions_fetched:
+                captions_queue.append(target)
+        save(f"captions/{rel}", body.encode())
+
+    # Now rewrite all references to the jsdelivr captions URL inside our
+    # already-saved chunks to point at the local copy.
+    captions_local = "/static/vidstack/captions/prod.js"
+    captions_jsdelivr = "https://cdn.jsdelivr.net/npm/media-captions@next/dist/prod.js"
+    for rel in fetched:
+        if not rel.endswith(".js"):
+            continue
+        path = OUT / rel
+        if not path.exists():
+            continue
+        try:
+            content = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        if captions_jsdelivr in content:
+            new_content = content.replace(captions_jsdelivr, captions_local)
+            path.write_text(new_content, encoding="utf-8")
+            print(f"  rewired captions URL in {rel}")
+
+    # 6. CSS
     for css_name, cdn_rel in [
         ("theme.css", "player/styles/default/theme.css"),
         ("video.css", "player/styles/default/layouts/video.css"),
