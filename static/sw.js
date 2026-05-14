@@ -1,5 +1,5 @@
 // TorrStream Service Worker — offline shell caching
-const CACHE_NAME = "torrstream-v6";
+const CACHE_NAME = "torrstream-v7";
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, "");
 const withBase = (path) => `${SCOPE_PATH}${path}` || path;
 const API_PREFIX = withBase("/api/");
@@ -9,6 +9,15 @@ const SHELL_ASSETS = [
   withBase("/static/vidstack/css/theme.css"),
   withBase("/static/vidstack/css/video.css"),
   withBase("/static/vidstack/vidstack.js"),
+  // Provider chunk that Vidstack loads on every video playback.
+  // Precaching avoids the race where a webhook redeploy mid-click leaves
+  // these chunks briefly missing from disk and causes a permanent 404
+  // inside the player's dynamic import.
+  withBase("/static/vidstack/providers/vidstack-video-ETCICrjY.js"),
+  withBase("/static/vidstack/providers/vidstack-html-DLGJPaeH.js"),
+  withBase("/static/vidstack/chunks/vidstack-CwgW6Poq.js"),
+  withBase("/static/vidstack/chunks/vidstack-kIsqtfYD.js"),
+  withBase("/static/vidstack/chunks/vidstack--CtACNuZ.js"),
 ];
 
 self.addEventListener("install", (e) => {

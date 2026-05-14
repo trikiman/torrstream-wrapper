@@ -1114,6 +1114,32 @@ async function playFile(hash, filename, index) {
     return;
   }
 
+  // Wait for Vidstack to actually assign a src to the <video> element. On some
+  // sources (.mkv files, slow CDN fetches of provider chunks) the dynamic import
+  // for the video provider can stall, leaving Vidstack in canLoad state but with
+  // no source on the inner <video>. Detect that and recover by directly setting
+  // the src — Chrome can play MKV+H.264 natively via the bare HTML5 element.
+  let vidstackSourceAssigned = false;
+  for (let tries = 0; tries < 50; tries++) {
+    await new Promise(r => setTimeout(r, 100));
+    if (video.currentSrc || video.src) {
+      vidstackSourceAssigned = true;
+      break;
+    }
+  }
+  if (!vidstackSourceAssigned) {
+    console.warn("[player] Vidstack didn't assign src after 5s — falling back to direct <video> src");
+    try {
+      video.src = streamUrl;
+      video.crossOrigin = "anonymous";
+      video.playsInline = true;
+      video.load();
+    } catch (e) {
+      showPlayerError("Плеер не смог загрузить источник", "Попробуйте обновить страницу или другой файл.");
+      return;
+    }
+  }
+
   // Restore saved position
   try {
     const posResp = await fetch(`${API}/api/position/${hash}?file_index=${index}`);
