@@ -1,5 +1,36 @@
 # Milestones
 
+## v2.1 Player UX + iOS readiness (Shipped: 2026-05-12)
+
+**Phases completed:** 2 phases, 5 plans
+
+**Key accomplishments:**
+
+- Replaced Plyr 3.7.8 with Vidstack 1.12.13 as the production video player; built-in default video layout exposes double-tap ±10s seek, tap-to-toggle play/pause, native fullscreen, and PiP where supported.
+- Resolved the audio playback regression at the root cause — duplicate `<video>` elements (one from the template, one inserted by Vidstack); Vidstack now owns the single `<video>`.
+- Preserved the Lampa plugin contract without code change: `static/lampa-sync.js`'s `findVideo()` still locates the underlying `<video>`, so cross-client position sync (Lampa ↔ TorrStream) continues to round-trip unchanged.
+- Service worker cache bumped to `v4` with Vidstack CDN assets; opaque-response tolerance (added in v1.0) protects install against CDN hiccups.
+- Auto-warmup added for cold TorrServer state: `/api/files` issues a 0-byte range probe against `/stream/...` when it gets empty `file_stats`, so the first click on a migrated torrent now returns the file list immediately.
+- `docs/DEPLOYMENT.md` documents the Oracle production topology (host, paths, systemd units, auth locations).
+- `docs/SMOKE-TESTS.md` adds a production smoke section and a 10-step iOS Safari walkthrough.
+- Production smoke `scripts/smoke_prod.py` rewritten for Vidstack — 9/9 PASS. MCP E2E 20/20 PASS. API suite 5/5 PASS.
+
+---
+
+## v2.0 Oracle Migration (Shipped: 2026-05-12)
+
+**Phases completed:** 3 phases, 7 plans
+
+**Key accomplishments:**
+
+- Live deployment moved from AWS Frankfurt EC2 to Oracle Cloud Always Free (`158.101.214.234`, `eu-amsterdam-1`).
+- All user state preserved: 3 torrents, 4 position entries, viewed markers byte-for-byte intact.
+- Domain `tv.trikiman.shop` + HTTPS via Caddy + GitHub auto-deploy webhook all working on Oracle without observable downtime.
+- Lampa plugin URL unchanged — existing installations keep working.
+- AWS torrstream services stopped + disabled; EC2 instance preserved per user choice (shared with co-tenants).
+
+---
+
 ## v1.1 Cross-Client Position Sync (Shipped: 2026-04-29)
 
 **Phases completed:** 1 phase, 2 plans, 5 tasks

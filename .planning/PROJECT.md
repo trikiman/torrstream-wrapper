@@ -29,15 +29,34 @@ A torrent added once should be easy to find, play, and resume from any device th
 - ✓ Lampa plugin URL unchanged — existing installations keep working
 - ✓ Service worker installation fixed along the way (opaque-response tolerance)
 - ✓ Auto-warmup on cold-start torrents (file_stats empty → wrapper pings /stream → re-fetches)
-- ⏳ AWS EC2 decommission deferred 24h for rollback safety net
+- ✓ AWS torrstream services stopped + disabled (instance preserved per user; full termination is user-action from console)
 
-### Active (v2.1 — Player UX + iOS readiness)
+**v2.1 (Player UX + iOS readiness, shipped 2026-05-12):**
+- ✓ Plyr 3.7.8 → Vidstack 1.12.13 swap; default video layout with built-in double-tap ±10s, fullscreen, PiP
+- ✓ Audio regression fixed at root cause (duplicate `<video>` element from template + Vidstack)
+- ✓ Lampa plugin contract preserved — no plugin changes required, position sync round-trips end-to-end
+- ✓ Service worker cache bumped to `v4` with Vidstack CDN assets
+- ✓ `docs/DEPLOYMENT.md` documents Oracle production topology; `docs/SMOKE-TESTS.md` adds iOS walkthrough
+- ⏳ Manual iOS smoke walkthrough (QUAL-03) — server contract validated MCP E2E 20/20; user-driven Safari verification deferred
 
-- [ ] Replace Plyr with Vidstack as the web player; preserve Lampa-plugin wire format and HTTP stream contract
-- [ ] Restore audio playback (regression reported after Plyr + Safari autoplay policy interaction)
-- [ ] Add double-tap-to-seek ±10s gesture (Vidstack built-in)
-- [ ] Verify iOS Safari touch UX (playsinline, gesture, PiP) with the new player
-- [ ] Keep `static/lampa-sync.js` untouched — plugin talks to `<video>` element directly, new player must expose the same
+### Active (v2.2 — Robustness + Coverage)
+
+Driven by 2026-05-14 E2E feature audit (8 captured todos in `.planning/todos/pending/`).
+
+**API hygiene:**
+- [ ] Return 404 for unknown-hash on `/api/files`, `/api/position` GET, `/api/remove`
+- [ ] Reject malformed JSON on `POST /api/position` with 400; require `position` numeric
+- [ ] Validate hash format (`^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$`) at route boundary; lowercase on persistence
+- [ ] Add `Access-Control-Allow-Origin: *` to `/static/*`
+
+**UX completeness:**
+- [ ] File-picker modal for multi-file torrents (today's UI silently picks largest file)
+- [ ] Download UI per file (README claims it; UI has zero affordance)
+- [ ] Fix theme transition slowness (~1.4s → ≤350ms)
+
+**Quality:**
+- [ ] pytest + Playwright harness; port the 2026-05-14 audit's 25 checks
+- [ ] CI hook for smoke + nightly E2E against prod
 
 ### Out of Scope
 

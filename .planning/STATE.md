@@ -1,88 +1,78 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.1
-milestone_name: player-ux-ios
-status: completed
-stopped_at: v2.1 Player UX + iOS readiness shipped
-last_updated: "2026-05-12T23:55:00.000Z"
-last_activity: 2026-05-12 -- v2.1 complete, Vidstack live, AWS services stopped
+milestone: v2.2
+milestone_name: robustness-coverage
+status: in_progress
+stopped_at: scaffolded; about to plan Phase 1 (API hygiene)
+last_updated: "2026-05-14T23:35:00.000Z"
+last_activity: 2026-05-14 -- v2.1 archived, v2.2 scaffolded with 3 phases (API hygiene, UX completeness, Test harness)
 progress:
-  total_phases: 2
-  completed_phases: 2
+  total_phases: 3
+  completed_phases: 0
   total_plans: 5
-  completed_plans: 5
-  percent: 100
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (last updated 2026-05-12)
+See: .planning/PROJECT.md (last updated 2026-05-14)
 
 **Core value:** A torrent added once should be easy to find, play, and resume from any device through one simple web UI.
-**Current focus:** Milestone closure — optional user-driven iOS walkthrough pending.
+**Current focus:** v2.2 — robustness fixes and a real test harness, derived from the 2026-05-14 E2E audit.
 
 ## Current Position
 
-Milestone: v2.1 Player UX + iOS readiness — **COMPLETE**
-Progress: [██████████] 100%
+Milestone: v2.2 Robustness + Coverage — **IN PROGRESS**
+Progress: [          ] 0%
 
-## Shipped in v2.1 (2026-05-12)
+| Phase | Plans | Status |
+|-------|-------|--------|
+| 1. API hygiene | 0/2 | Pending |
+| 2. UX completeness | 0/2 | Pending |
+| 3. Test harness | 0/1 | Pending |
 
-- **Player**: Plyr 3.7.8 → Vidstack 1.12.13. Default video layout with built-in double-tap ±10s seek, tap-to-toggle play/pause, native fullscreen, PiP where supported.
-- **Audio regression fixed**: Root cause was a duplicate `<video>` element when both the template and Vidstack each inserted one. Now Vidstack owns a single `<video>`; audio plays by default.
-- **Lampa plugin preserved**: No plugin changes; contract (find `<video>` element, read/write `currentTime`/`duration`) still holds against Vidstack's internal video element.
-- **Service worker**: Cache bumped to `v4`; shell assets now reference Vidstack CDN URLs. Opaque-response tolerance added previously still protects install against CDN hiccups.
-- **Auto-warmup for cold TorrServer state**: `/api/files` issues a 0-byte range probe against `/stream/...` when it gets empty file_stats, so first click on a migrated torrent now returns the file list immediately (no "no video files" flash).
-- **Docs**: `docs/DEPLOYMENT.md` documents the Oracle production topology (host, paths, systemd units, auth locations). `docs/SMOKE-TESTS.md` adds a production smoke section and a 10-step iOS Safari walkthrough.
-- **Smoke**: `scripts/smoke_prod.py` updated to check for `vidstack=True` in the shell. 9/9 PASS on final run.
+## v2.2 Source
 
-## Validated in this session
+Driven by 8 todos captured in `.planning/todos/pending/` from the 2026-05-14 E2E feature audit:
 
-- **MCP E2E (20/20 PASS)** against live `tv.trikiman.shop`: shell, library, SW, single video, audio+video decoding, default unmuted, Vidstack gestures, playsinline, fullscreen-capable, wrapper UI save, seek+save, Lampa plugin load+hook+resume+flush, CORS preflight.
-- **API suite (5/5 PASS)**: TorrServer auth enforced (401 without creds, 200 with), add/remove torrent round-trip, status endpoint shape.
-- **Production smoke (9/9 PASS)**: shell, manifest, SW, Lampa plugin asset, status, library, search, file list, CORS.
+| Todo | Phase / Plan | Requirement |
+|------|------|------|
+| `return-404-for-unknown-hash` | 1 / 01-01 | API-01 |
+| `validate-hash-format` | 1 / 01-01 | API-02 |
+| `reject-malformed-json-on-position-post` | 1 / 01-02 | API-03 |
+| `cors-headers-on-static` | 1 / 01-02 | API-04 |
+| `file-picker-modal-multi-file-torrents` | 2 / 02-01 | UX-01 |
+| `add-download-ui-per-file` | 2 / 02-01 | UX-02 |
+| `fix-slow-theme-transition` | 2 / 02-02 | UX-03 |
+| `e2e-test-harness` | 3 / 03-01 | QUAL-04, QUAL-05 |
+
+## Last v2.1 Outcome
+
+Shipped 2026-05-12. Plyr → Vidstack swap, audio regression fixed, Lampa plugin contract preserved, Oracle production topology documented, MCP E2E 20/20 PASS. Archived to `.planning/milestones/v2.1-ROADMAP.md`. Tagged `v2.1`.
 
 ## AWS Status
 
-- TorrStream services on AWS (`13.60.174.46`) are **stopped and disabled**: `caddy`, `torrserver`, `flask-wrapper`. Orphan `python app.py` on port 5000 killed. No torrstream ports listening.
-- **EC2 instance itself preserved** per user choice — box shared with saleapp/VLESS co-tenants.
-- AWS GitHub webhook was deactivated during v2.1 Phase 1.
-- Full EC2 termination deferred to user action from the AWS console.
+- TorrStream services on AWS (`13.60.174.46`) are **stopped and disabled**: `caddy`, `torrserver`, `flask-wrapper`. Orphan `python app.py` killed.
+- **EC2 instance itself preserved** per user choice — box shared with co-tenants.
+- AWS GitHub webhook deactivated.
+- Full EC2 termination deferred to user action from AWS console.
 
-## Open Backlog (not blocking; queued for v2.2+)
+## Open Backlog (queued for v2.3+)
 
-- **QUAL-03 / iOS manual walkthrough**: User-driven; 10-step guide in `docs/SMOKE-TESTS.md`. MCP validation covered the server contract; remaining gaps are Safari-specific codec + touch behavior.
-- **INFRA-04**: Re-migrate to ARM Ampere if `oracle-hunter` eventually catches capacity.
+- **QUAL-03**: User-driven iOS Safari manual walkthrough (10-step guide in `docs/SMOKE-TESTS.md`).
 - **PROD-01..05**: Base path config, user auth, richer metadata, chapters, subtitles in Vidstack.
 - **ENG-01/02**: Module split + pinned dependency manifest.
-
-### Pending Todos (8) — captured 2026-05-14 from E2E feature audit
-
-UX gaps:
-- `add-download-ui-per-file` — README claims downloading; UI has zero affordance for it
-- `file-picker-modal-multi-file-torrents` — single-click goes straight to player; no way to pick non-default file
-- `fix-slow-theme-transition` — theme toggle takes ~1.4s vs declared 250ms
-
-API hygiene:
-- `return-404-for-unknown-hash` — `/api/files`, `/api/position` GET, `/api/remove` all return 200 for nonexistent hashes
-- `reject-malformed-json-on-position-post` — `silent=True` swallows parse errors and returns "ok:true"
-- `cors-headers-on-static` — `/static/*` lacks CORS headers; cross-origin `fetch()` fails (script tag still works)
-- `validate-hash-format` — no infohash validation at route boundary; allows junk keys into `positions.json`
-
-Foundation:
-- `e2e-test-harness` — promote the 25-check audit into a runnable pytest + Playwright suite; current `smoke_prod.py` is too thin
-
-Files in `.planning/todos/pending/`. Use `/gsd-check-todos` to triage,
-`/gsd-review-backlog` to promote into v2.2.
+- **INFRA-04**: Re-migrate to ARM Ampere if `oracle-hunter` catches capacity.
 
 ## Blockers / Concerns
 
-None. v2.1 is done. v2.2 scope captured as todos above; not yet planned.
+None. v2.2 scaffold is in place; ready to plan Phase 1.
 
 ## Session Continuity
 
-Last session: 2026-05-14 23:30 UTC (E2E feature audit + todo capture)
-Stopped at: 8 audit-driven todos in `.planning/todos/pending/`; ready to scope v2.2
+Last session: 2026-05-14 23:35 UTC (scaffolded v2.2 from 2026-05-14 E2E audit todos)
+Stopped at: ready to plan Phase 1 (API hygiene)
 Resume file: None

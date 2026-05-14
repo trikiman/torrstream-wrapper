@@ -1,82 +1,48 @@
 # Requirements: TorrStream
 
-**Defined:** 2026-04-05 (v1.0), amended 2026-05-11 (v2.0) and 2026-05-12 (v2.1)
+**Defined:** 2026-04-05 (v1.0), amended 2026-05-11 (v2.0), 2026-05-12 (v2.1), 2026-05-14 (v2.2)
 **Core Value:** A torrent added once should be easy to find, play, and resume from any device through one simple web UI.
 
-## v1 Requirements (shipped)
+## v1 + v2.0 + v2.1 (shipped, archived)
 
-### Library
-- [x] **LIBR-01**: User can list torrents from TorrServer through the wrapper API.
-- [x] **LIBR-02**: User can inspect file choices for a torrent and see video files highlighted for playback.
+See archives:
+- `.planning/milestones/v1.0-REQUIREMENTS.md` — base requirements (LIBR, PLAY, SYNC, MGMT, DISC, DELV, QUAL).
+- `.planning/milestones/v1.1-REQUIREMENTS.md` — SYNC-03 cross-client position sync.
+- `.planning/milestones/v2.0-REQUIREMENTS.md` — INFRA, MIGR, CUT, SEC.
+- `.planning/milestones/v2.1-REQUIREMENTS.md` — PLAY-03..07, DELV-05..06, QUAL-02..03.
 
-### Playback
-- [x] **PLAY-01**: User can stream a selected file through the wrapper with HTTP range support.
-- [x] **PLAY-02**: User can download a selected file through the wrapper.
+## v2.2 Requirements (active — Robustness + Coverage)
 
-### Sync
-- [x] **SYNC-01**: User watch position is stored per torrent file on the server.
-- [x] **SYNC-02**: Wrapper marks a file as viewed in TorrServer when playback passes the completion threshold.
-- [x] **SYNC-03** (v1.1): Lampa plugin reads and writes wrapper positions cross-origin, seeking video to saved offset on stream start.
+Source: 2026-05-14 E2E feature audit (8 captured todos in `.planning/todos/pending/`).
 
-### Management
-- [x] **MGMT-01**: User can add a torrent from a magnet link or search result.
-- [x] **MGMT-02**: User can remove a torrent and clear any saved local position state for it.
+### API hygiene
 
-### Discovery
-- [x] **DISC-01**: User can search jacred from the UI and review addable results.
+- [ ] **API-01**: `/api/files/<hash>`, `/api/position/<hash>` (GET), `/api/remove/<hash>` return **404** when the hash is unknown to both `positions.json` AND TorrServer's library, with the existing diagnostics body preserved.
+- [ ] **API-02**: All hash-bearing routes reject hashes that don't match `^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$` with **400 invalid hash**. Hashes are normalized to lowercase before persistence.
+- [ ] **API-03**: `POST /api/position/<hash>` rejects malformed JSON with **400 invalid JSON**, and missing/non-numeric `position` with **400 missing or invalid position**, while preserving CORS headers on error responses.
+- [ ] **API-04**: `GET /static/*` exposes `Access-Control-Allow-Origin: *` so a Lampa-side `fetch('https://tv.trikiman.shop/static/lampa-sync.js', { mode: 'cors' })` succeeds.
 
-### Delivery
-- [x] **DELV-01**: The web UI loads as a single installable app shell with manifest and service-worker assets.
-- [x] **DELV-02**: Deployment paths and runtime configuration are documented and aligned with the actual access pattern.
+### UX completeness
 
-### Quality
-- [x] **QUAL-01**: Core wrapper behaviors have a repeatable smoke-verification path.
-
-## v2.0 Requirements (Oracle migration, shipped 2026-05-12)
-
-### Infrastructure
-- [x] **INFRA-01**: Oracle target host provisioned with swap, firewall open for 80/443/8090, packages installed.
-- [x] **INFRA-02**: Systemd units for TorrServer, Flask wrapper, Caddy with `Restart=on-failure`.
-- [x] **INFRA-03**: Caddy terminates TLS for `tv.trikiman.shop` via Let's Encrypt.
-- [x] **SEC-01**: TorrServer `/` requires BasicAuth (accs.db plaintext `{user: pass}`). Lampa clients send auth via Lampa's built-in TorrServer credentials field.
-
-### Migration
-- [x] **MIGR-01**: `positions.json` migrated byte-for-byte.
-- [x] **MIGR-02**: TorrServer `config.db` + `settings.json` migrated so all 3 torrents are present with viewed markers.
-- [x] **MIGR-03**: Wrapper code + GitHub webhook deployed on Oracle with HMAC-verified auto-pull.
-
-### Cutover
-- [x] **CUT-01**: DNS `tv.trikiman.shop` pointed at Oracle (A record `158.101.214.234`).
-- [x] **CUT-02**: Production smoke checklist passes 9/9 against the live domain.
-- [ ] **CUT-03**: AWS EC2 instance stopped, snapshotted, terminated. *Deferred 24h as hot standby.*
-
-## v2.1 Requirements (active — Player UX + iOS readiness)
-
-### Player
-- [ ] **PLAY-03**: Vidstack is the web player; Plyr and its CDN scripts are removed from the shell.
-- [ ] **PLAY-04**: Audio plays by default on desktop Chrome/Firefox and on iOS Safari once the user initiates playback. No silent-playback regressions.
-- [ ] **PLAY-05**: Double-tap on the left third of the player rewinds 10s; double-tap on the right third fast-forwards 10s. Tap in the middle toggles play/pause.
-- [ ] **PLAY-06**: Player exposes the underlying HTMLVideoElement so `static/lampa-sync.js`'s `findVideo()` continues to locate it. Plugin must not need changes.
-- [ ] **PLAY-07**: Playback controls (play, pause, seek, volume, fullscreen, PiP where supported) work on iOS Safari and iPad Safari; inline playback is preserved (no forced fullscreen on `<video>` tap).
-
-### Delivery
-- [ ] **DELV-05**: Service worker keeps working after the Plyr assets are removed from the cached asset list.
-- [ ] **DELV-06**: Bundle footprint increase is documented (Plyr was ~120 KB JS; Vidstack is ~250 KB gzip). Still loaded from CDN, no bundler.
+- [ ] **UX-01**: Clicking a multi-file torrent opens a file-picker modal listing every file with path, size, duration, viewed flag, resume position. Single-file torrents preserve current straight-to-player UX.
+- [ ] **UX-02**: Each row in the file-picker has a **Скачать** (Download) anchor using `<a download="...">` against `/api/stream/...`. iOS Safari fallback shows a toast pointing at "Поделиться → Сохранить в Файлы".
+- [ ] **UX-03**: Theme toggle full background color change reaches its target value within **≤350ms** wall-clock from click. Implementation: switch theming root from body class to `html[data-theme]`, scope transitions to specific properties.
 
 ### Quality
-- [ ] **QUAL-02**: `scripts/smoke_prod.py` updated to cover the new player markup (it currently checks the shell contains `plyr=True`; swap for the Vidstack indicator).
-- [ ] **QUAL-03**: Manual iOS smoke on a real iPhone or iPad: library → file → play → seek via double-tap → resume on reopen.
 
-## Future (v2.2+ backlog)
+- [ ] **QUAL-04**: Every check in the 2026-05-14 E2E feature audit is a runnable test under `tests/api/`, `tests/integration/`, or `tests/ui/`. Tests are safe to run against prod (mutations capture+restore pre-state).
+- [ ] **QUAL-05**: GitHub Actions runs `pytest -m smoke` on every PR and nightly against prod. `pytest -m e2e` runs nightly. `scripts/smoke_prod.py` retained but documented as thin pre-flight.
+
+## Future (v2.3+ backlog)
 
 - **PROD-01**: Wrapper supports configurable base paths and direct-root deployments.
 - **PROD-02**: Wrapper supports authenticated user access.
 - **PROD-03**: Wrapper provides richer metadata and poster normalization.
-- **ENG-01**: Backend is split into modules with automated tests.
-- **ENG-02**: Dependency versions are pinned in `requirements.txt`.
-- **INFRA-04**: Re-migrate from x86-2 to ARM Ampere if `oracle-hunter` catches capacity.
 - **PROD-04**: In-player chapter markers for multi-episode torrents.
 - **PROD-05**: Subtitle track selection in Vidstack (TorrServer's subtitle files).
+- **ENG-01**: Backend is split into modules.
+- **ENG-02**: Dependency versions are pinned in `requirements.txt`.
+- **INFRA-04**: Re-migrate from x86-2 to ARM Ampere if `oracle-hunter` catches capacity.
 
 ## Out of Scope
 
@@ -85,46 +51,26 @@
 | Reimplementing TorrServer | Not the purpose of the wrapper |
 | Native mobile/TV apps | Browser delivery + Lampa plugin is sufficient |
 | Social or collaborative features | Project is single-user/self-hosted |
-| Rewriting `app.py` into modules during this milestone | Keep blast radius small |
+| Rewriting `app.py` into modules during this milestone | Defer to v2.3+ (ENG-01) |
 | Promoting `positions.json` to a database | Not needed at current scale |
 | Moving to a JS bundler / SPA framework | Vidstack ships web components over CDN |
 
-## Traceability
+## Traceability — v2.2
 
-### v1 (shipped, archived)
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| DELV-02 | v1.0 Phase 1 | Complete |
-| QUAL-01 | v1.0 Phase 1 | Complete |
-| LIBR-01, LIBR-02 | v1.0 Phase 2 | Complete |
-| MGMT-01, MGMT-02 | v1.0 Phase 2 | Complete |
-| PLAY-01, PLAY-02 | v1.0 Phase 3 | Complete |
-| SYNC-01, SYNC-02 | v1.0 Phase 3 | Complete |
-| DISC-01, DELV-01 | v1.0 Phase 4 | Complete |
-| SYNC-03 | v1.1 Phase 1 | Complete |
+| Requirement | Phase | Plan | Status |
+|-------------|-------|------|--------|
+| API-01, API-02 | v2.2 Phase 1 | 01-01 | Pending |
+| API-03, API-04 | v2.2 Phase 1 | 01-02 | Pending |
+| UX-01, UX-02 | v2.2 Phase 2 | 02-01 | Pending |
+| UX-03 | v2.2 Phase 2 | 02-02 | Pending |
+| QUAL-04, QUAL-05 | v2.2 Phase 3 | 03-01 | Pending |
 
-### v2.0 (shipped 2026-05-12)
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| INFRA-01, INFRA-02, INFRA-03, SEC-01 | v2.0 Phase 1 | Complete |
-| MIGR-01, MIGR-02, MIGR-03 | v2.0 Phase 2 | Complete |
-| CUT-01, CUT-02 | v2.0 Phase 3 | Complete |
-| CUT-03 | v2.0 Phase 3 | Deferred (scheduled) |
-
-### v2.1 (active)
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| PLAY-03, PLAY-04, PLAY-05, PLAY-06, PLAY-07 | v2.1 Phase 1 | Active |
-| DELV-05, DELV-06 | v2.1 Phase 1 | Active |
-| QUAL-02, QUAL-03 | v2.1 Phase 2 | Pending |
-
-**Coverage:**
+**Coverage so far:**
 - v1: 13 requirements / 13 shipped
+- v1.1: 1 requirement / 1 shipped
 - v2.0: 10 requirements / 9 shipped + 1 deferred
-- v2.1: 9 requirements / 0 shipped
+- v2.1: 9 requirements / 8 shipped + 1 user-driven deferred
+- **v2.2: 9 requirements / 0 shipped (active)**
 
 ---
-*Requirements defined: 2026-04-05*
-*v1.1 amendments: 2026-04-29 (SYNC-03)*
-*v2.0 amendments: 2026-05-11 (INFRA-*, MIGR-*, CUT-*, SEC-01) — shipped 2026-05-12*
-*v2.1 amendments: 2026-05-12 (PLAY-03..07, DELV-05..06, QUAL-02..03)*
+*v2.2 amendments: 2026-05-14 (API-01..04, UX-01..03, QUAL-04..05) — driven by 2026-05-14 E2E audit*

@@ -2,76 +2,104 @@
 
 ## Overview
 
-Milestone v2.1 replaces the current Plyr-based player with Vidstack, restores audio playback, adds double-tap-to-seek, and verifies iOS Safari playback. The Lampa plugin must keep working without changes because it locates the underlying `<video>` element directly in the DOM. Work proceeds in two phases: swap the player with contract-preserving tests, then verify iOS and close out the smoke checklist.
+Milestone v2.2 closes the gaps surfaced by the 2026-05-14 E2E feature audit:
 
-Prior milestones (v1.0, v1.1, v2.0) are archived under `.planning/milestones/` (v2.0 archive pending final AWS termination).
+- **API hygiene** — return proper 404s for unknown hashes, reject malformed JSON, validate hash format at the route boundary, expose CORS on `/static/*` so the Lampa plugin can be fetched cross-origin.
+- **UX completeness** — implement the documented-but-missing download UI per file, add a file-picker modal for multi-file torrents (today's UI silently picks the largest file), and fix the slow theme transition (~1.4s vs declared 250ms).
+- **Testing foundation** — promote the manual audit into a repeatable pytest + Playwright harness, port the 25-check audit, and wire smoke into CI.
 
-## Active Milestone: v2.1 Player UX + iOS readiness
+Prior milestones (v1.0, v1.1, v2.0, v2.1) are archived under `.planning/milestones/`.
+
+## Active Milestone: v2.2 Robustness + Coverage
 
 ### Phases
 
-- [x] **Phase 1: Vidstack Swap** — Replace Plyr in `templates/index.html` with Vidstack web components; preserve `<video>` discoverability for the Lampa plugin; fix audio regression; add double-tap gesture. (completed 2026-05-12)
-- [x] **Phase 2: iOS Verification + Smoke Update** — Update smoke scripts for the new player markup, manual iOS/iPad test, close out remaining CUT-03 (AWS decommission). (completed 2026-05-12; AWS instance preserved per user, services stopped)
+- [ ] **Phase 1: API hygiene** — `/api/files`, `/api/position`, `/api/remove`, `/static/*` get correct HTTP semantics (404 on unknown, 400 on malformed, hash validation, CORS).
+- [ ] **Phase 2: UX completeness** — file-picker modal, per-file download UI, theme transition fix.
+- [ ] **Phase 3: Test harness** — pytest + Playwright; port audit; CI hook.
 
 ### Phase Details
 
-#### Phase 1: Vidstack Swap
+#### Phase 1: API hygiene
 
-**Goal**: `tv.trikiman.shop` uses Vidstack as the video player. Users get audio on first play, double-tap ±10s seek, native-feeling iOS Safari touch UX. Lampa plugin continues working untouched.
+**Goal:** TorrStream's HTTP API behaves correctly for every documented edge case. Unknown hashes return 404, malformed JSON returns 400, hash format is validated at the route boundary, and `/static/*` is reachable from cross-origin `fetch()`.
 
-**Depends on**: Nothing (v2.0 infrastructure is live; v2.1 is a frontend change)
+**Depends on:** Nothing (independent of v2.1's frontend work).
 
-**Requirements**: [PLAY-03, PLAY-04, PLAY-05, PLAY-06, PLAY-07, DELV-05, DELV-06]
+**Requirements:** [API-01, API-02, API-03, API-04]
 
-**Success Criteria** (what must be TRUE):
-1. Plyr CDN scripts removed from `templates/index.html`; Vidstack web components and CDN scripts added.
-2. When user clicks Play, the `<video>` element starts with audio audible by default on desktop Chrome and Firefox.
-3. On iOS Safari the player respects `playsinline` and does not force fullscreen; user can interact inline.
-4. Double-tap left third rewinds 10s; right third fast-forwards 10s; center toggles play/pause.
-5. `static/lampa-sync.js` — untouched — still finds the `<video>` element and round-trips position.
-6. Service worker caches Vidstack's CDN assets (or gracefully tolerates them being uncacheable).
-7. Production smoke against `tv.trikiman.shop` passes 9/9 with updated Vidstack marker check.
+**Success Criteria:**
+1. `GET /api/files/<unknown_hash>` returns **404** with diagnostics body when the hash is not in TorrServer's library.
+2. `GET /api/position/<unknown_hash>` returns **404** with zeroed body when the hash is unknown to both `positions.json` AND TorrServer.
+3. `DELETE /api/remove/<unknown_hash>` returns **404** when nothing was removed on either side.
+4. All three endpoints reject hashes that don't match `^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$` with **400 invalid hash**.
+5. `POST /api/position/<hash>` rejects malformed JSON with **400 invalid JSON** and missing/non-numeric `position` with **400 missing or invalid position**.
+6. `GET /static/*` includes `Access-Control-Allow-Origin: *`; `fetch('https://tv.trikiman.shop/static/lampa-sync.js', { mode: 'cors' })` from `lampa.mx` succeeds.
+7. The Lampa plugin and TorrStream UI continue to work unchanged — no client modifications needed.
+8. Smoke check `scripts/smoke_prod.py` updated to cover the new error paths.
 
-**Plans**: 3 plans
+**Plans:** 2
+- 01-01: Hash format validator + 404 for unknown hash on `/api/files`, `/api/position` GET, `/api/remove`. (3 endpoint changes, 1 shared validator)
+- 01-02: Reject malformed JSON on `POST /api/position` (400 + missing-field validation) + add `Access-Control-Allow-Origin: *` to `/static/*` via `after_request` handler.
 
-Plans:
-- [ ] 01-01: Research the exact Vidstack CDN bundle, attribute API, and gesture component; pin versions.
-- [ ] 01-02: Swap markup + scripts in `templates/index.html`; wire resume position + save-on-pause events into Vidstack event handlers.
-- [ ] 01-03: Verify Lampa plugin round-trip against the new player markup (stub Lampa on TorrStream page as before).
+#### Phase 2: UX completeness
 
-#### Phase 2: iOS Verification + Smoke Update
+**Goal:** Every file in every torrent is reachable via the UI — pick any file, play it OR download it. Theme toggle feels instant.
 
-**Goal**: Production is confirmed working on iOS Safari + iPad Safari. Smoke script updated. AWS instance can now be terminated.
+**Depends on:** Phase 1 (API hygiene; the picker reads `/api/files` and depends on its 404 semantics).
 
-**Depends on**: Phase 1
+**Requirements:** [UX-01, UX-02, UX-03]
 
-**Requirements**: [QUAL-02, QUAL-03, CUT-03]
+**Success Criteria:**
+1. Clicking a single-file torrent card still goes straight to player (preserved UX).
+2. Clicking a multi-file torrent card opens a file-picker modal listing every file with: path, size, duration if known, viewed flag, resume position.
+3. Each row in the picker has a **Play** button and a **Скачать** (Download) button.
+4. The Download button uses `<a href="/api/stream/<encoded-name>?hash=X&index=Y" download="<encoded-name>">` so the browser saves the file with the correct name.
+5. iOS Safari fallback: tapping Download on iOS shows a toast pointing to "Поделиться → Сохранить в Файлы" (Safari ignores `download` cross-origin).
+6. Theme toggle: full background color change reaches its target value within ≤350ms wall-clock from click (was ~1400ms). Implementation note: switch from `body.classList` to `html[data-theme="light"]` and scope transitions to specific properties.
+7. `docs/SMOKE-TESTS.md` updated with: file-picker walkthrough, download verification (byte-parity vs API), theme timing assertion.
 
-**Success Criteria** (what must be TRUE):
-1. `scripts/smoke_prod.py` no longer checks for Plyr; checks for Vidstack marker in shell; still passes 9/9.
-2. Manual iOS walkthrough: Shell loads → library visible → tap torrent → tap playable file → player opens inline → audio plays → seek via slider and via double-tap → close and reopen → resumes from saved position.
-3. `docs/SMOKE-TESTS.md` updated with the iOS walkthrough steps and the double-tap expectation.
-4. AWS EC2 terminated, AWS webhook deleted from GitHub, `docs/DEPLOYMENT.md` updated to say Oracle is sole production.
+**Plans:** 2
+- 02-01: File-picker modal + per-file download UI. Single click on multi-file torrent opens picker; existing single-file shortcut preserved.
+- 02-02: Theme transition fix — root `data-theme` attribute, scoped transitions, drop color transition.
 
-**Plans**: 2 plans
+#### Phase 3: Test harness
 
-Plans:
-- [ ] 02-01: Update `scripts/smoke_prod.py` and `docs/SMOKE-TESTS.md` to reflect Vidstack; rerun production smoke.
-- [ ] 02-02: AWS decommission (stop → snapshot → terminate); delete AWS webhook; update docs and archive v2.0 milestone.
+**Goal:** Every check in the 2026-05-14 E2E audit becomes a runnable test. CI runs the smoke marker on every PR. New regressions are caught before they ship.
+
+**Depends on:** Phase 1, Phase 2 (tests assert the new contracts).
+
+**Requirements:** [QUAL-04, QUAL-05]
+
+**Success Criteria:**
+1. `tests/api/` covers every `/api/*` route × every documented response shape: happy path, 404 unknown hash, 400 malformed JSON, 400 invalid hash, CORS preflight, range request, probe mode.
+2. `tests/integration/` covers Lampa→TorrServer→TorrStream sync (using a known-fixture magnet), position GET/POST round-trip + Lampa-sync overwrite, viewed-sync threshold (>95% triggers).
+3. `tests/ui/` (Playwright) covers shell load, search debounce, theme timing assertion, file picker modal, download anchor, install button visibility per UA.
+4. Tests are safe to run against prod: every mutation captures pre-state and restores; no side-effects after a green run.
+5. CI hook (GitHub Actions) runs the `smoke` marker on every PR + nightly against prod. Full E2E runs nightly.
+6. `scripts/smoke_prod.py` retained but documented as a thin pre-flight; pytest is the source of truth.
+7. `docs/SMOKE-TESTS.md` updated with `pytest -m smoke` and `pytest -m e2e` invocation. `.planning/codebase/STACK.md` updated to remove "No automated test framework".
+
+**Plans:** 1
+- 03-01: pytest + Playwright harness setup, port audit checks (api/integration/ui), add CI hook, document.
 
 ## Progress
 
-**Execution Order:** Phase 1 → Phase 2
+**Execution Order:** Phase 1 → Phase 2 → Phase 3
 
 | Phase | Plans Complete | Status |
 |-------|----------------|--------|
-| 1. Vidstack Swap | 3/3 | Complete | 2026-05-12 |
-| 2. iOS Verification + Smoke Update | 2/2 | Complete | 2026-05-12 |
+| 1. API hygiene | 0/2 | Pending |
+| 2. UX completeness | 0/2 | Pending |
+| 3. Test harness | 0/1 | Pending |
 
 ## Archived Milestones
 
-### v2.0 Oracle Migration (shipped 2026-05-12, pending AWS terminate)
-- 3 phases, 7 plans. Summary: deployment moved from AWS Frankfurt to Oracle Amsterdam; all user state preserved; domain + TLS + Lampa plugin URL unchanged; auto-deploy webhook working. See `.planning/phases/01-oracle-baseline/` for artifacts.
+### v2.1 Player UX + iOS readiness (shipped 2026-05-12)
+- 2 phases, 5 plans. Vidstack swap + iOS verification + Oracle deployment topology docs. See `.planning/milestones/v2.1-ROADMAP.md`.
+
+### v2.0 Oracle Migration (shipped 2026-05-12)
+- 3 phases, 7 plans. Migration AWS → Oracle, full state preservation. See `.planning/phases/01-oracle-baseline/` for artifacts.
 
 ### v1.1 Cross-Client Position Sync (shipped 2026-04-29)
 - 1 phase, 2 plans. See `.planning/milestones/v1.1-ROADMAP.md`.
