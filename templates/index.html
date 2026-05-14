@@ -62,14 +62,16 @@ media-video-layout:not(:defined) { display: block; background: #000; min-height:
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  background: var(--bg);
+  background-color: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
   min-height: 100vh;
   min-height: 100dvh;
-  /* Scope the transition: only background-color animates on theme change.
-     Color was animated previously but barely shifted and added re-paint cost.
-     200ms feels snappy without being abrupt. */
+  /* Explicit background-color (not the shorthand) so the transition target
+     matches the property the engine actually observes when --bg changes.
+     Browsers don't always re-fire transitions when a CSS variable inside a
+     `background:` shorthand changes; using `background-color: var(--bg)`
+     keeps the transition on a single, observable property. */
   transition: background-color 200ms ease-out;
   -webkit-font-smoothing: antialiased;
   padding-top: var(--safe-top);
