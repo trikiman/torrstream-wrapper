@@ -1,5 +1,22 @@
 # Milestones
 
+## v2.2 Robustness + Coverage (Shipped: 2026-05-14)
+
+**Phases completed:** 3 phases, 5 plans, 9 requirements
+
+**Key accomplishments:**
+
+- Fixed API hygiene gaps surfaced by the 2026-05-14 E2E feature audit: `/api/files`, `/api/position` GET, `/api/remove` now return **404** for well-formed but unknown hashes (was: 200 with empty/zero state). All hash routes reject malformed hashes with **400 invalid hash** and normalize to lowercase at persistence + lookup.
+- `POST /api/position` now rejects malformed JSON with **400 invalid JSON** instead of silently returning 200 (was: `silent=True` swallowed parse errors). Missing `position` field returns 400. CORS preserved on error responses.
+- `/static/*` exposes `Access-Control-Allow-Origin: *` so a Lampa-side `fetch('https://tv.trikiman.shop/static/lampa-sync.js', { mode: 'cors' })` works (was `TypeError: Failed to fetch`).
+- Per-file download UI: ⬇ Скачать button in the Episode Panel rows + round download button in the player header. Uses `<a download>` against `/api/stream/...`. iOS Safari fallback opens new tab + toast pointing at "Поделиться → Сохранить в Файлы".
+- Theme toggle latency: **1432ms → ≤16ms** (89× faster). Three CSS-only attempts hit Chrome's ~680ms style-cascade recompute ceiling on this DOM (vidstack web components + shadow trees). Final pivot: `applyTheme()` writes `document.body.style.backgroundColor` directly, bypassing the cascade.
+- Real test harness: pytest contract suite (57 tests, Flask test client + mocked TorrServer, runs in 0.58s) + live integration suite (10 read-only tests against `tv.trikiman.shop`, 7.48s). GitHub Actions CI hook runs smoke on every PR + push and integration nightly.
+- Discovered during the audit: file-picker for multi-file torrents was already shipped as the Episode Panel — original audit used the wrong selector.
+- All 8 captured todos closed; archived under `.planning/todos/completed/`.
+
+---
+
 ## v2.1 Player UX + iOS readiness (Shipped: 2026-05-12)
 
 **Phases completed:** 2 phases, 5 plans

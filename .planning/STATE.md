@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: robustness-coverage
-status: in_progress
-stopped_at: scaffolded; about to plan Phase 1 (API hygiene)
-last_updated: "2026-05-14T23:35:00.000Z"
-last_activity: 2026-05-14 -- v2.1 archived, v2.2 scaffolded with 3 phases (API hygiene, UX completeness, Test harness)
+status: completed
+stopped_at: v2.2 Robustness + Coverage shipped
+last_updated: "2026-05-14T23:55:00.000Z"
+last_activity: 2026-05-14 -- v2.2 complete (3 phases, 5 plans, 9 reqs, 67 tests)
 progress:
   total_phases: 3
-  completed_phases: 0
+  completed_phases: 3
   total_plans: 5
-  completed_plans: 0
-  percent: 0
+  completed_plans: 5
+  percent: 100
 ---
 
 # Project State
@@ -21,58 +21,72 @@ progress:
 See: .planning/PROJECT.md (last updated 2026-05-14)
 
 **Core value:** A torrent added once should be easy to find, play, and resume from any device through one simple web UI.
-**Current focus:** v2.2 — robustness fixes and a real test harness, derived from the 2026-05-14 E2E audit.
+**Current focus:** Milestone closure — ready to archive and start v2.3.
 
 ## Current Position
 
-Milestone: v2.2 Robustness + Coverage — **IN PROGRESS**
-Progress: [          ] 0%
+Milestone: v2.2 Robustness + Coverage — **COMPLETE**
+Progress: [██████████] 100%
 
 | Phase | Plans | Status |
 |-------|-------|--------|
-| 1. API hygiene | 0/2 | Pending |
-| 2. UX completeness | 0/2 | Pending |
-| 3. Test harness | 0/1 | Pending |
+| 1. API hygiene | 2/2 | ✓ Complete |
+| 2. UX completeness | 2/2 | ✓ Complete |
+| 3. Test harness | 1/1 | ✓ Complete |
 
-## v2.2 Source
+## Shipped in v2.2 (2026-05-14)
 
-Driven by 8 todos captured in `.planning/todos/pending/` from the 2026-05-14 E2E feature audit:
+- **API hygiene** (Phase 1):
+  - `/api/files`, `/api/position` GET, `/api/remove` return 404 for well-formed but unknown hashes (was: 200 with empty/zero state).
+  - All hash routes reject malformed hashes with 400 invalid hash. Lowercase normalization at persistence + lookup.
+  - `POST /api/position` rejects malformed JSON with 400 (was: silent 200), missing `position` with 400.
+  - `/static/*` exposes `Access-Control-Allow-Origin: *` so cross-origin `fetch()` of the Lampa plugin source works.
+  - Removed corner cases noted by 2026-05-14 audit; `/api/remove` returns 502 on TS failure (was: 200 with ok:false).
 
-| Todo | Phase / Plan | Requirement |
-|------|------|------|
-| `return-404-for-unknown-hash` | 1 / 01-01 | API-01 |
-| `validate-hash-format` | 1 / 01-01 | API-02 |
-| `reject-malformed-json-on-position-post` | 1 / 01-02 | API-03 |
-| `cors-headers-on-static` | 1 / 01-02 | API-04 |
-| `file-picker-modal-multi-file-torrents` | 2 / 02-01 | UX-01 |
-| `add-download-ui-per-file` | 2 / 02-01 | UX-02 |
-| `fix-slow-theme-transition` | 2 / 02-02 | UX-03 |
-| `e2e-test-harness` | 3 / 03-01 | QUAL-04, QUAL-05 |
+- **UX completeness** (Phase 2):
+  - Per-file download UI: ⬇ Скачать button in Episode Panel rows + round download button in player header. iOS fallback opens new tab + toast.
+  - Theme toggle: 1432ms → ≤16ms (instant). Implementation pivoted after three CSS-only attempts to JS-driven inline style write that bypasses Chrome's ~680ms style cascade recompute on this DOM.
+  - File picker for multi-file torrents was already implemented (Episode Panel) — discovered during this milestone; original audit grep used wrong selectors.
 
-## Last v2.1 Outcome
+- **Test harness** (Phase 3):
+  - 67 pytest tests across `tests/api/` (57 contract via Flask test client + mocked TorrServer) and `tests/integration/` (10 live read-only against `tv.trikiman.shop`).
+  - `pytest.ini` markers: smoke / integration / e2e / cors. e2e gated behind opt-in.
+  - `.github/workflows/tests.yml` runs smoke on every PR + push to main; integration nightly + on push.
+  - `requirements-dev.txt` documents the dev dependency set.
 
-Shipped 2026-05-12. Plyr → Vidstack swap, audio regression fixed, Lampa plugin contract preserved, Oracle production topology documented, MCP E2E 20/20 PASS. Archived to `.planning/milestones/v2.1-ROADMAP.md`. Tagged `v2.1`.
+- **Docs**:
+  - `docs/SMOKE-TESTS.md` updated with pytest invocation as preferred path.
+  - `.planning/codebase/STACK.md` no longer claims "no automated test framework".
 
-## AWS Status
+## Validated in this session
 
-- TorrStream services on AWS (`13.60.174.46`) are **stopped and disabled**: `caddy`, `torrserver`, `flask-wrapper`. Orphan `python app.py` killed.
-- **EC2 instance itself preserved** per user choice — box shared with co-tenants.
-- AWS GitHub webhook deactivated.
-- Full EC2 termination deferred to user action from AWS console.
+- **Phase 1**: 11/11 backend contract checks via chrome-devtools MCP against `tv.trikiman.shop` after auto-deploy. Cross-origin checks from `lampa.mx` (Lampa plugin still loads, position sync still active).
+- **Phase 2**: theme reach-target measured at 0ms (next paint frame). Download anchor URL `download="Matrix.1999.BDRip.avi"`, server returns 206 `Content-Range: bytes 0-15/1571913728`.
+- **Phase 3**: `pytest -m smoke` 57/57 PASS in 0.58s. `pytest -m integration` 10/10 PASS in 7.48s against live wrapper.
+
+## Source todos (closed)
+
+All 8 todos from the 2026-05-14 E2E audit are now in `.planning/todos/completed/`. Each maps to a v2.2 requirement and a specific commit. See `.planning/milestones/v2.2-REQUIREMENTS.md` for the full mapping.
 
 ## Open Backlog (queued for v2.3+)
 
-- **QUAL-03**: User-driven iOS Safari manual walkthrough (10-step guide in `docs/SMOKE-TESTS.md`).
+- **QUAL-03**: User-driven iOS Safari manual walkthrough (10-step guide in `docs/SMOKE-TESTS.md`). Carried from v2.1.
 - **PROD-01..05**: Base path config, user auth, richer metadata, chapters, subtitles in Vidstack.
 - **ENG-01/02**: Module split + pinned dependency manifest.
 - **INFRA-04**: Re-migrate to ARM Ampere if `oracle-hunter` catches capacity.
+- **TEST-01** (new): Playwright UI suite — theme timing assertion, picker walkthrough, download click-through. Covered today by chrome-devtools MCP manual runs; promote when manual coverage becomes insufficient.
+
+## AWS Status
+
+- TorrStream services on AWS (`13.60.174.46`) **stopped and disabled**. Instance preserved per user (shared with co-tenants).
+- AWS GitHub webhook deactivated. Oracle (`158.101.214.234`) is sole production.
 
 ## Blockers / Concerns
 
-None. v2.2 scaffold is in place; ready to plan Phase 1.
+None. v2.2 is done.
 
 ## Session Continuity
 
-Last session: 2026-05-14 23:35 UTC (scaffolded v2.2 from 2026-05-14 E2E audit todos)
-Stopped at: ready to plan Phase 1 (API hygiene)
+Last session: 2026-05-14 23:55 UTC
+Stopped at: v2.2 complete; ready to archive milestone or start v2.3
 Resume file: None

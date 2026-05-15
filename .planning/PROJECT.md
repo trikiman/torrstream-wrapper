@@ -39,24 +39,22 @@ A torrent added once should be easy to find, play, and resume from any device th
 - ✓ `docs/DEPLOYMENT.md` documents Oracle production topology; `docs/SMOKE-TESTS.md` adds iOS walkthrough
 - ⏳ Manual iOS smoke walkthrough (QUAL-03) — server contract validated MCP E2E 20/20; user-driven Safari verification deferred
 
-### Active (v2.2 — Robustness + Coverage)
+**v2.2 (Robustness + Coverage, shipped 2026-05-14):**
+- ✓ `/api/files`, `/api/position` GET, `/api/remove` return **404** for well-formed but unknown hashes (was: 200 with empty/zero state)
+- ✓ All hash routes reject malformed hashes with **400 invalid hash**; lowercase normalization at persistence + lookup
+- ✓ `POST /api/position` rejects malformed JSON with **400 invalid JSON** (was: silent 200); missing `position` returns 400; CORS preserved on errors
+- ✓ `/static/*` exposes `Access-Control-Allow-Origin: *` (cross-origin `fetch()` of Lampa plugin source works)
+- ✓ Per-file download UI: ⬇ Скачать in Episode Panel rows + round button in player header; iOS Safari fallback toast
+- ✓ Theme toggle latency: 1432ms → ≤16ms (89× faster); pivoted to JS-driven inline style write that bypasses Chrome's style cascade recompute on this DOM
+- ✓ pytest harness: 57 contract tests (Flask test client + mocked TorrServer) + 10 live integration tests against `tv.trikiman.shop`
+- ✓ GitHub Actions CI hook runs smoke on every PR + push, integration nightly
+- ✓ All 8 captured E2E audit todos closed and archived to `.planning/todos/completed/`
 
-Driven by 2026-05-14 E2E feature audit (8 captured todos in `.planning/todos/pending/`).
+### Active
 
-**API hygiene:**
-- [ ] Return 404 for unknown-hash on `/api/files`, `/api/position` GET, `/api/remove`
-- [ ] Reject malformed JSON on `POST /api/position` with 400; require `position` numeric
-- [ ] Validate hash format (`^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$`) at route boundary; lowercase on persistence
-- [ ] Add `Access-Control-Allow-Origin: *` to `/static/*`
+**No active milestone.** Last shipped: v2.2 (2026-05-14).
 
-**UX completeness:**
-- [ ] File-picker modal for multi-file torrents (today's UI silently picks largest file)
-- [ ] Download UI per file (README claims it; UI has zero affordance)
-- [ ] Fix theme transition slowness (~1.4s → ≤350ms)
-
-**Quality:**
-- [ ] pytest + Playwright harness; port the 2026-05-14 audit's 25 checks
-- [ ] CI hook for smoke + nightly E2E against prod
+To start the next: `/gsd-new-milestone`.
 
 ### Out of Scope
 
