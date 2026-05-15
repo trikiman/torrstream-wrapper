@@ -1226,20 +1226,41 @@ async function playFile(hash, filename, index) {
     }
   }
 
-  // Restore saved position
+  // Restore saved position + autoplay.
+  //
+  // Bug fixed in v2.2.1 (2026-05-15): assigning `video.onloadedmetadata` AFTER
+  // Vidstack has already loaded metadata (which is the common case once the
+  // probe + waitForVidstackSrc loops finish — readyState=4 by then) means the
+  // handler waits for an event that already fired. Result: no seek, no play.
+  // User sees a paused player at currentTime=0 with the saved position lost.
+  //
+  // Fix: always read pos first, then either run the seek+play immediately if
+  // metadata is already loaded, or attach a one-shot addEventListener
+  // (instead of clobbering onloadedmetadata) to handle the not-yet-loaded case.
+  let pos = null;
   try {
     const posResp = await fetch(`${API}/api/position/${hash}?file_index=${index}`);
-    const pos = await posResp.json();
+    pos = await posResp.json();
+  } catch (e) { /* fall through with null */ }
 
-    video.onloadedmetadata = () => {
-      if (pos.position > 10) {
+  const doResumeAndPlay = () => {
+    if (pos && pos.ok !== false && pos.position > 10) {
+      try {
         video.currentTime = pos.position;
         showToast(`С ${fmtTime(pos.position)}`);
+      } catch (e) {
+        console.warn("[player] seek failed:", e);
       }
-      video.play().catch(() => {});
-    };
-  } catch(e) {
-    video.onloadedmetadata = () => { video.play().catch(() => {}); };
+    }
+    // play() may reject due to autoplay policy; we ignore — user can press play.
+    video.play().catch((e) => console.debug("[player] autoplay blocked:", e?.name));
+  };
+
+  if (video.readyState >= 1 /* HAVE_METADATA */) {
+    // Metadata was already loaded by Vidstack before this code ran — fire now.
+    doResumeAndPlay();
+  } else {
+    video.addEventListener("loadedmetadata", doResumeAndPlay, { once: true });
   }
 
   // Save position every 5s
