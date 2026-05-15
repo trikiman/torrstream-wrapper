@@ -1158,36 +1158,29 @@ function playNextEpisode() {
 }
 
 // ═══ Play File ═══
+//
+// Time-to-first-play target: <1s after card click. Path:
+//   1. Open overlay (sync, preserves user gesture).
+//   2. Wait briefly for Vidstack to upgrade <media-player> + insert <video>.
+//   3. Set video.src DIRECTLY (bypass Vidstack's source pipeline — its dynamic
+//      provider import stalls 5s+ on .mkv and other unrecognised types). Chrome
+//      decodes MKV+H.264, MP4, WebM natively from a bare <video> element.
+//   4. Call video.play() immediately. Browser autoplay policy treats this as
+//      user-initiated because we're still within the gesture's task chain.
+//   5. Fetch saved position async + seek when metadata loads.
+//   6. Probe runs in parallel, only surfaces errors if the stream actually fails.
 async function playFile(hash, filename, index) {
   const fname = getFilename(filename);
   const streamUrl = `${API}/api/stream/${encodeURIComponent(fname)}?hash=${hash}&index=${index}`;
-  const probeUrl = `${streamUrl}&probe=1`;
 
-  try {
-    const probeResp = await fetch(probeUrl);
-    const probe = await probeResp.json();
-    if (!probe.ok) {
-      showPlayerError("Поток недоступен", probe.error || "Проверьте источник и повторите попытку.");
-      return;
-    }
-  } catch (e) {
-    showPlayerError("Не удалось проверить поток", "Повторите попытку через несколько секунд.");
-    return;
-  }
-
-  // Open the player overlay FIRST so the <media-player> is visible/attached when Vidstack
-  // upgrades its custom elements. Without this, Vidstack sometimes delays <video> insertion
-  // until the player becomes visible, which races the wait loop below.
+  // Step 1: open overlay synchronously so the user sees an immediate response
+  // and Vidstack has the host element visible for upgrade.
   document.getElementById("playerOverlay").classList.add("active");
   document.body.style.overflow = "hidden";
 
-  // Vidstack: set source on <media-player>. TorrServer file containers include .mkv which
-  // Vidstack would otherwise route to an HLS provider; force the plain HTML5 video provider
-  // by declaring the source with an explicit generic video type. Chrome decodes MKV+H.264
-  // natively via canPlayType().
-  ensurePlayerElement(); // makes sure <media-player> exists
+  // Step 2: prepare media-player and wait for the inner <video>.
+  ensurePlayerElement();
   const mediaPlayer = document.getElementById("mediaPlayer");
-  mediaPlayer.src = { src: streamUrl, type: "video/mp4" };
 
   let video = null;
   for (let tries = 0; tries < 30; tries++) {
@@ -1200,50 +1193,54 @@ async function playFile(hash, filename, index) {
     return;
   }
 
-  // Wait for Vidstack to actually assign a src to the <video> element. On some
-  // sources (.mkv files, slow CDN fetches of provider chunks) the dynamic import
-  // for the video provider can stall, leaving Vidstack in canLoad state but with
-  // no source on the inner <video>. Detect that and recover by directly setting
-  // the src — Chrome can play MKV+H.264 natively via the bare HTML5 element.
-  let vidstackSourceAssigned = false;
-  for (let tries = 0; tries < 50; tries++) {
-    await new Promise(r => setTimeout(r, 100));
-    if (video.currentSrc || video.src) {
-      vidstackSourceAssigned = true;
-      break;
-    }
-  }
-  if (!vidstackSourceAssigned) {
-    console.warn("[player] Vidstack didn't assign src after 5s — falling back to direct <video> src");
-    try {
-      video.src = streamUrl;
-      video.crossOrigin = "anonymous";
-      video.playsInline = true;
-      video.load();
-    } catch (e) {
-      showPlayerError("Плеер не смог загрузить источник", "Попробуйте обновить страницу или другой файл.");
-      return;
-    }
+  // Step 3: assign src directly to <video>. Skipping Vidstack's source pipeline
+  // because for non-HLS streams it adds 5+s of latency without benefit (live
+  // measurement 2026-05-15: waitForVidstackSrc consistently expired on .mkv).
+  // <media-player> still wraps the element and provides the UI/gestures layer
+  // — controls, double-tap seek, fullscreen, PiP all keep working.
+  try {
+    video.src = streamUrl;
+    video.crossOrigin = "anonymous";
+    video.playsInline = true;
+    // Don't call video.load() explicitly — Chrome triggers it on src= and
+    // calling load() can race with our addEventListener for loadedmetadata.
+  } catch (e) {
+    showPlayerError("Плеер не смог загрузить источник", "Попробуйте обновить страницу или другой файл.");
+    return;
   }
 
-  // Restore saved position + autoplay.
-  //
-  // Bug fixed in v2.2.1 (2026-05-15): assigning `video.onloadedmetadata` AFTER
-  // Vidstack has already loaded metadata (which is the common case once the
-  // probe + waitForVidstackSrc loops finish — readyState=4 by then) means the
-  // handler waits for an event that already fired. Result: no seek, no play.
-  // User sees a paused player at currentTime=0 with the saved position lost.
-  //
-  // Fix: always read pos first, then either run the seek+play immediately if
-  // metadata is already loaded, or attach a one-shot addEventListener
-  // (instead of clobbering onloadedmetadata) to handle the not-yet-loaded case.
+  // Kick off play() ASAP while still in the user-gesture task chain. Browser
+  // autoplay policy treats this as user-initiated → no autoplay block. If the
+  // call returns rejected (e.g. Safari low MEI), the user can press play once.
+  video.play().catch((e) => {
+    console.debug("[player] initial play() blocked:", e?.name);
+  });
+
+  // Step 4: kick off async probe in parallel — informs us if the stream is broken
+  // upstream, but doesn't block playback.
+  fetch(`${streamUrl}&probe=1`)
+    .then(r => r.json())
+    .then(probe => {
+      if (probe && probe.ok === false) {
+        showPlayerError("Поток недоступен", probe.error || "Проверьте источник и повторите попытку.");
+      }
+    })
+    .catch(() => { /* probe is best-effort; video.onerror covers the real failure path */ });
+
+  // Step 5: read saved position async, seek when video metadata is available.
+  // Bug context (v2.2.1, 2026-05-15): the previous implementation clobbered
+  // video.onloadedmetadata AFTER metadata was already loaded — handler never
+  // fired. Use addEventListener + readyState check to handle both cases.
   let pos = null;
   try {
     const posResp = await fetch(`${API}/api/position/${hash}?file_index=${index}`);
     pos = await posResp.json();
   } catch (e) { /* fall through with null */ }
 
-  const doResumeAndPlay = () => {
+  // Seek to saved position once metadata is available. play() was already
+  // called above (in the user-gesture chain), so this just handles the seek.
+  // If pos < 10 or unavailable, no-op — the existing playback continues.
+  const doResume = () => {
     if (pos && pos.ok !== false && pos.position > 10) {
       try {
         video.currentTime = pos.position;
@@ -1252,15 +1249,18 @@ async function playFile(hash, filename, index) {
         console.warn("[player] seek failed:", e);
       }
     }
-    // play() may reject due to autoplay policy; we ignore — user can press play.
-    video.play().catch((e) => console.debug("[player] autoplay blocked:", e?.name));
+    // Defensive re-play: if metadata loaded after play() rejected (e.g. autoplay
+    // policy was strict pre-metadata), retry now that we know we have content.
+    if (video.paused) {
+      video.play().catch((e) => console.debug("[player] re-play blocked:", e?.name));
+    }
   };
 
   if (video.readyState >= 1 /* HAVE_METADATA */) {
-    // Metadata was already loaded by Vidstack before this code ran — fire now.
-    doResumeAndPlay();
+    // Metadata was already loaded by the time we reached this — fire now.
+    doResume();
   } else {
-    video.addEventListener("loadedmetadata", doResumeAndPlay, { once: true });
+    video.addEventListener("loadedmetadata", doResume, { once: true });
   }
 
   // Save position every 5s
