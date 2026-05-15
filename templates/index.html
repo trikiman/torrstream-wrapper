@@ -44,22 +44,13 @@ media-video-layout:not(:defined) { display: block; background: #000; min-height:
 }
 /*
  * Theme switching: drives off `html[data-theme="light"]` so the variable
- * redefinition happens at root level — single recompute, no body-class
- * descendant cascade. Keep `.light` selector as a back-compat alias because
- * scattered nav/header rules still target it; they continue to work without
- * change. The previous body-class approach measured ~1.4s wall-clock to
- * reach the target color (sampled 2026-05-14 via chrome-devtools MCP).
- *
- * @property registration makes --bg a typed, transitionable color so the
- * browser can interpolate between custom-property values across theme toggle.
- * Without this, Chrome treats var()-driven background changes as discrete
- * (no transition fires), measured at 684ms hard-snap on this DOM.
+ * redefinition happens at root level. The body's background-color is also
+ * set directly from JS in applyTheme() — Chrome's style recomputation
+ * through the rule cascade takes ~680ms on this DOM (vidstack web components
+ * + shadow trees) regardless of CSS transition approach. A direct inline
+ * style write paints in the next frame (~16ms), giving instant feedback.
+ * Other elements (nav, cards) follow the cascade on the same paint cycle.
  */
-@property --bg {
-  syntax: '<color>';
-  inherits: true;
-  initial-value: #0d0d0d;
-}
 :root[data-theme="light"], .light {
   --bg: #f5f5f5;
   --bg2: #ffffff;
@@ -77,11 +68,9 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
   min-height: 100vh;
   min-height: 100dvh;
-  /* @property registration above makes --bg an animatable color, so the
-     transition engine can interpolate between #0d0d0d and #f5f5f5 directly.
-     Transition both --bg (the source value) and background-color (the target
-     property) for cross-browser robustness. */
-  transition: --bg 200ms ease-out, background-color 200ms ease-out;
+  /* Drop transition entirely — style recomputation latency on this DOM
+     (~680ms) dwarfs any animation, and applyTheme() now sets backgroundColor
+     directly from JS (paints in next frame ~16ms). */
   -webkit-font-smoothing: antialiased;
   padding-top: var(--safe-top);
   padding-bottom: var(--safe-bottom);
@@ -699,15 +688,19 @@ if ("serviceWorker" in navigator) {
 }
 
 // ═══ Theme ═══
-// Stored on the html element via `data-theme` so the CSS-variable redefinition
-// happens at the cascade root and the browser only repaints once. The body
-// class `.light` is still toggled in lockstep for back-compat with the existing
-// `.light nav` selector (and any third-party CSS that targets it).
+// Stored on the html element via `data-theme` so CSS variable redefinition
+// happens at the cascade root. Body background-color is also set directly
+// inline so the user sees instant feedback (Chrome's full style recompute
+// through the cascade can take >600ms on a DOM with vidstack web components;
+// a direct inline style write paints in the next frame).
 const savedTheme = localStorage.getItem("theme") || "dark";
+const THEME_BG = { light: "#f5f5f5", dark: "#0d0d0d" };
 function applyTheme(name) {
   document.documentElement.setAttribute("data-theme", name);
   if (name === "light") document.body.classList.add("light");
   else document.body.classList.remove("light");
+  // Snap body bg directly — bypasses style cascade recomputation latency.
+  document.body.style.backgroundColor = THEME_BG[name] || THEME_BG.dark;
   document.getElementById("themeBtn").textContent = name === "light" ? "🌙" : "☀️";
 }
 applyTheme(savedTheme);
