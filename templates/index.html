@@ -1179,13 +1179,14 @@ async function playFile(hash, filename, index) {
   document.body.style.overflow = "hidden";
 
   // Step 2: prepare media-player. Setting mediaPlayer.src triggers Vidstack
-  // to upgrade the element + insert the inner <video>. Without this assignment
-  // Vidstack never instantiates the player. Use a string (not the {src,type}
-  // object form) so Vidstack picks the provider by extension — works for
-  // .mp4/.mkv/.webm/.avi without forcing a specific MIME type that may mismatch.
+  // to upgrade the element + insert the inner <video>. Use the {src,type} form
+  // — Vidstack accepts a string but the object form is its documented API and
+  // empirically the only one that reliably triggers init for our setup.
+  // type: "video/mp4" forces the HTML5 (not HLS) provider; Chrome decodes
+  // mp4/mkv/webm/avi from this provider via canPlayType native checks.
   ensurePlayerElement();
   const mediaPlayer = document.getElementById("mediaPlayer");
-  mediaPlayer.src = streamUrl;
+  mediaPlayer.src = { src: streamUrl, type: "video/mp4" };
 
   let video = null;
   for (let tries = 0; tries < 30; tries++) {
