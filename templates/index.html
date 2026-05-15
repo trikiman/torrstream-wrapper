@@ -1178,9 +1178,14 @@ async function playFile(hash, filename, index) {
   document.getElementById("playerOverlay").classList.add("active");
   document.body.style.overflow = "hidden";
 
-  // Step 2: prepare media-player and wait for the inner <video>.
+  // Step 2: prepare media-player. Setting mediaPlayer.src triggers Vidstack
+  // to upgrade the element + insert the inner <video>. Without this assignment
+  // Vidstack never instantiates the player. Use a string (not the {src,type}
+  // object form) so Vidstack picks the provider by extension — works for
+  // .mp4/.mkv/.webm/.avi without forcing a specific MIME type that may mismatch.
   ensurePlayerElement();
   const mediaPlayer = document.getElementById("mediaPlayer");
+  mediaPlayer.src = streamUrl;
 
   let video = null;
   for (let tries = 0; tries < 30; tries++) {
@@ -1193,20 +1198,23 @@ async function playFile(hash, filename, index) {
     return;
   }
 
-  // Step 3: assign src directly to <video>. Skipping Vidstack's source pipeline
-  // because for non-HLS streams it adds 5+s of latency without benefit (live
-  // measurement 2026-05-15: waitForVidstackSrc consistently expired on .mkv).
-  // <media-player> still wraps the element and provides the UI/gestures layer
-  // — controls, double-tap seek, fullscreen, PiP all keep working.
-  try {
-    video.src = streamUrl;
-    video.crossOrigin = "anonymous";
-    video.playsInline = true;
-    // Don't call video.load() explicitly — Chrome triggers it on src= and
-    // calling load() can race with our addEventListener for loadedmetadata.
-  } catch (e) {
-    showPlayerError("Плеер не смог загрузить источник", "Попробуйте обновить страницу или другой файл.");
-    return;
+  // Step 3: if Vidstack didn't assign src to the inner <video> within 800ms,
+  // assign directly. This is the .mkv-stalls-Vidstack-provider escape hatch.
+  // Reduced from 5000ms (original) to 800ms because the user-visible delay
+  // dominated time-to-first-play and Chrome native HTML5 plays MKV+H.264 fine.
+  for (let tries = 0; tries < 8; tries++) {
+    if (video.currentSrc || video.src) break;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  if (!(video.currentSrc || video.src)) {
+    try {
+      video.src = streamUrl;
+      video.crossOrigin = "anonymous";
+      video.playsInline = true;
+    } catch (e) {
+      showPlayerError("Плеер не смог загрузить источник", "Попробуйте обновить страницу или другой файл.");
+      return;
+    }
   }
 
   // Kick off play() ASAP while still in the user-gesture task chain. Browser
