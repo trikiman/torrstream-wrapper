@@ -1,0 +1,56 @@
+# TorrStream test suite — runs on every PR + push to main, plus nightly against prod.
+#
+# - smoke: fast unit/contract checks via Flask test client. No network required.
+# - integration: hits the live wrapper at tv.trikiman.shop (read-only).
+# - e2e: full mutating round-trip. Manual / nightly only.
+
+name: tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app.py"
+      - "templates/**"
+      - "static/**"
+      - "tests/**"
+      - "requirements*.txt"
+      - "pytest.ini"
+      - ".github/workflows/tests.yml"
+  pull_request:
+    branches: [main]
+  schedule:
+    # Nightly integration smoke against prod (UTC 04:30)
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: Smoke (Flask test client)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: pytest tests/api -m smoke -v
+
+  integration:
+    name: Integration (live wrapper, read-only)
+    runs-on: ubuntu-latest
+    needs: smoke
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - env:
+          TORRSTREAM_BASE: https://tv.trikiman.shop
+        run: pytest tests/integration -m integration -v

@@ -1,0 +1,14 @@
+# Test + dev dependencies for TorrStream.
+#
+# Install with:
+#   pip install -r requirements-dev.txt
+#
+# Run tests:
+#   pytest -m smoke         # fast, mocked TorrServer (CI-safe)
+#   pytest -m integration   # hits live wrapper for read-only checks
+#   pytest -m e2e           # full end-to-end (mutations; opt-in)
+#   pytest                  # everything except e2e (markers config in pytest.ini)
+
+pytest>=8.0
+pytest-mock>=3.12
+requests>=2.31

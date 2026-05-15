@@ -1,5 +1,38 @@
 # Smoke Tests
 
+## Automated suite (preferred)
+
+As of v2.2 there is a runnable pytest harness under `tests/`. Use it before
+falling back to manual smoke. The manual sections below remain useful for
+exploratory checks and for things that aren't yet automated (iOS Safari, real
+torrent playback).
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+
+# Fast unit/contract checks (Flask test client, no network) — CI default
+pytest -m smoke
+
+# Live wrapper checks against tv.trikiman.shop (read-only)
+pytest -m integration
+
+# Specific area
+pytest tests/api/test_position.py -v
+
+# Full e2e including mutations (opt-in, may add/remove torrents)
+pytest -m e2e
+```
+
+CI runs `pytest -m smoke` on every PR + push and `pytest -m integration`
+nightly against prod via `.github/workflows/tests.yml`.
+
+Suite layout:
+
+- `tests/api/` — Flask test client. Every `/api/*` route × every documented
+  response shape. Locks in the v2.2 contracts (404 for unknown hash, 400 for
+  malformed JSON, hash format validation, CORS scoping).
+- `tests/integration/` — hits the live wrapper. Read-only; safe against prod.
+
 ## Purpose
 
 Use this document after changes that affect:

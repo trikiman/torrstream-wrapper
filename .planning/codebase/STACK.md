@@ -28,7 +28,7 @@
 - Requests - outbound HTTP client for TorrServer and jacred integration in `app.py`
 
 **Testing:**
-- No automated test framework is configured in this repository
+- pytest harness under `tests/` (added in v2.2): API contract tests via Flask test client, integration tests against the live wrapper, CI hook in `.github/workflows/tests.yml`
 
 **Build/Dev:**
 - No build pipeline
