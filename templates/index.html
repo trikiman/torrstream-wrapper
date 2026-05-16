@@ -1337,18 +1337,26 @@ function closePlayer() {
   }
   if (video) {
     try { video.pause(); } catch(e) {}
+    try {
+      // Detach the listener attached in playFile so it doesn't fire on the
+      // next open's first metadata load. addEventListener with { once: true }
+      // already self-removes on fire, but if metadata never loaded this open
+      // we leak the listener — overwrite with a no-op on the underlying video.
+      video.removeAttribute("src");
+      video.load();
+    } catch (e) {}
   }
   if (mp) {
     try { mp.src = ""; } catch(e) {}
   }
   document.getElementById("playerOverlay").classList.remove("active");
   document.getElementById("playerDownloadBtn").style.display = "none";
-  document.querySelector(".video-wrap").innerHTML = `
-    <media-player id="mediaPlayer" playsinline crossorigin aria-label="TorrStream video player">
-      <media-provider></media-provider>
-      <media-video-layout></media-video-layout>
-    </media-player>
-  `;
+  // KEEP the <media-player> instance — destroying via innerHTML = ... forces
+  // Vidstack to re-upgrade on the next open (3-5s cost per click). We just
+  // cleared its src above; the next playFile call sets a new src and reuses
+  // the same upgraded element. Falls back to recreate only if the element
+  // somehow vanished (script error, manual DOM tinkering, etc.) via
+  // ensurePlayerElement() at the top of playFile().
   document.body.style.overflow = "";
 
   // If episode panel was open, refresh it
