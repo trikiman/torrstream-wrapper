@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.2
-milestone_name: robustness-coverage
-status: completed
-stopped_at: v2.2 Robustness + Coverage shipped
-last_updated: "2026-05-14T23:55:00.000Z"
-last_activity: 2026-05-14 -- v2.2 complete (3 phases, 5 plans, 9 reqs, 67 tests)
+milestone: v2.3
+milestone_name: lampa-parser-shim
+status: in_progress
+stopped_at: scaffolded; about to implement Plan 01-01
+last_updated: "2026-05-22T02:35:00.000Z"
+last_activity: 2026-05-22 -- v2.2 archived, v2.3 scaffolded (single phase, 1 plan, 2 reqs)
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 5
-  completed_plans: 5
-  percent: 100
+  total_phases: 1
+  completed_phases: 0
+  total_plans: 1
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,72 +21,54 @@ progress:
 See: .planning/PROJECT.md (last updated 2026-05-14)
 
 **Core value:** A torrent added once should be easy to find, play, and resume from any device through one simple web UI.
-**Current focus:** Milestone closure — ready to archive and start v2.3.
+**Current focus:** v2.3 — Lampa parser shim. Make TorrStream usable as the Lampa torrent-search parser so jac.red mirror flips and ISP blocks stop killing search.
 
 ## Current Position
 
-Milestone: v2.2 Robustness + Coverage — **COMPLETE**
-Progress: [██████████] 100%
+Milestone: v2.3 Lampa parser shim — **IN PROGRESS**
+Progress: [          ] 0%
 
 | Phase | Plans | Status |
 |-------|-------|--------|
-| 1. API hygiene | 2/2 | ✓ Complete |
-| 2. UX completeness | 2/2 | ✓ Complete |
-| 3. Test harness | 1/1 | ✓ Complete |
+| 1. Lampa parser shim | 0/1 | Pending |
 
-## Shipped in v2.2 (2026-05-14)
+## Why this milestone
 
-- **API hygiene** (Phase 1):
-  - `/api/files`, `/api/position` GET, `/api/remove` return 404 for well-formed but unknown hashes (was: 200 with empty/zero state).
-  - All hash routes reject malformed hashes with 400 invalid hash. Lowercase normalization at persistence + lookup.
-  - `POST /api/position` rejects malformed JSON with 400 (was: silent 200), missing `position` with 400.
-  - `/static/*` exposes `Access-Control-Allow-Origin: *` so cross-origin `fetch()` of the Lampa plugin source works.
-  - Removed corner cases noted by 2026-05-14 audit; `/api/remove` returns 502 on TS failure (was: 200 with ok:false).
+2026-05-17 user-blocking incident:
+- `http://jac.red` (Lampa's default HTTP fetch) intermittently blocked by user's ISP.
+- Workaround: switch Lampa's `jackett_url` to `https://jac.red` — works but fragile.
+- Each time jacred mirror is rotated by the upstream maintainers OR HTTPS gets selectively throttled, user has to manually update Lampa settings again.
 
-- **UX completeness** (Phase 2):
-  - Per-file download UI: ⬇ Скачать button in Episode Panel rows + round download button in player header. iOS fallback opens new tab + toast.
-  - Theme toggle: 1432ms → ≤16ms (instant). Implementation pivoted after three CSS-only attempts to JS-driven inline style write that bypasses Chrome's ~680ms style cascade recompute on this DOM.
-  - File picker for multi-file torrents was already implemented (Episode Panel) — discovered during this milestone; original audit grep used wrong selectors.
+Robust fix:
+- TorrStream wrapper already proxies jac.red via `/api/search` (transformed shape).
+- Add `/api/v1.0/torrents` that proxies the **raw jacred shape** — Lampa speaks this natively.
+- Lampa points at `https://tv.trikiman.shop` once. Done.
+- TorrStream's `JACRED_URL` env var lets ops swap mirrors without code changes.
 
-- **Test harness** (Phase 3):
-  - 67 pytest tests across `tests/api/` (57 contract via Flask test client + mocked TorrServer) and `tests/integration/` (10 live read-only against `tv.trikiman.shop`).
-  - `pytest.ini` markers: smoke / integration / e2e / cors. e2e gated behind opt-in.
-  - `.github/workflows/tests.yml` runs smoke on every PR + push to main; integration nightly + on push.
-  - `requirements-dev.txt` documents the dev dependency set.
+## Last v2.2 Outcome
 
-- **Docs**:
-  - `docs/SMOKE-TESTS.md` updated with pytest invocation as preferred path.
-  - `.planning/codebase/STACK.md` no longer claims "no automated test framework".
-
-## Validated in this session
-
-- **Phase 1**: 11/11 backend contract checks via chrome-devtools MCP against `tv.trikiman.shop` after auto-deploy. Cross-origin checks from `lampa.mx` (Lampa plugin still loads, position sync still active).
-- **Phase 2**: theme reach-target measured at 0ms (next paint frame). Download anchor URL `download="Matrix.1999.BDRip.avi"`, server returns 206 `Content-Range: bytes 0-15/1571913728`.
-- **Phase 3**: `pytest -m smoke` 57/57 PASS in 0.58s. `pytest -m integration` 10/10 PASS in 7.48s against live wrapper.
-
-## Source todos (closed)
-
-All 8 todos from the 2026-05-14 E2E audit are now in `.planning/todos/completed/`. Each maps to a v2.2 requirement and a specific commit. See `.planning/milestones/v2.2-REQUIREMENTS.md` for the full mapping.
-
-## Open Backlog (queued for v2.3+)
-
-- **QUAL-03**: User-driven iOS Safari manual walkthrough (10-step guide in `docs/SMOKE-TESTS.md`). Carried from v2.1.
-- **PROD-01..05**: Base path config, user auth, richer metadata, chapters, subtitles in Vidstack.
-- **ENG-01/02**: Module split + pinned dependency manifest.
-- **INFRA-04**: Re-migrate to ARM Ampere if `oracle-hunter` catches capacity.
-- **TEST-01** (new): Playwright UI suite — theme timing assertion, picker walkthrough, download click-through. Covered today by chrome-devtools MCP manual runs; promote when manual coverage becomes insufficient.
+Shipped 2026-05-14. API hygiene (404/400 contracts, hash validation, CORS scope) + UX completeness (per-file download UI, theme toggle 1432ms→16ms) + pytest harness (67 tests with CI hook). Archived to `.planning/milestones/v2.2-ROADMAP.md`. Tagged `v2.2`.
 
 ## AWS Status
 
 - TorrStream services on AWS (`13.60.174.46`) **stopped and disabled**. Instance preserved per user (shared with co-tenants).
 - AWS GitHub webhook deactivated. Oracle (`158.101.214.234`) is sole production.
 
+## Open Backlog (queued for v2.4+)
+
+- **QUAL-03**: User-driven iOS Safari manual walkthrough (10-step guide in `docs/SMOKE-TESTS.md`).
+- **PROD-01..05**: Base path config, user auth, richer metadata, chapters, subtitles in Vidstack.
+- **ENG-01/02**: Module split + pinned dependency manifest.
+- **INFRA-04**: Re-migrate to ARM Ampere if `oracle-hunter` catches capacity.
+- **TEST-01**: Playwright UI suite.
+- **LAMPA-03** (potential): Multi-mirror failover inside the wrapper.
+
 ## Blockers / Concerns
 
-None. v2.2 is done.
+None. Plan 01-01 is small (~30-50 lines of Python + 2-3 tests).
 
 ## Session Continuity
 
-Last session: 2026-05-14 23:55 UTC
-Stopped at: v2.2 complete; ready to archive milestone or start v2.3
+Last session: 2026-05-22 02:35 UTC
+Stopped at: v2.3 scaffolded; ready to implement Plan 01-01
 Resume file: None

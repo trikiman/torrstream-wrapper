@@ -465,6 +465,8 @@ def _cors_headers(response):
     """Allow cross-origin reads/writes for endpoints consumed by the Lampa plugin.
 
     - /api/position/* — Lampa plugin (lampa.mx) reads/writes resume state.
+    - /api/v1.0/torrents — Lampa torrent parser shim (v2.3). Lampa clients hit
+      this cross-origin when the user configures TorrStream as their parser.
     - /static/* — Lampa-side fetch() of the plugin source for version probes,
       hot-reload, etc. The script tag itself works without CORS, but explicit
       `fetch(... , { mode: 'cors' })` requires the header.
@@ -475,6 +477,10 @@ def _cors_headers(response):
         response.headers.setdefault("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         response.headers.setdefault("Access-Control-Allow-Headers", "Content-Type")
         response.headers.setdefault("Access-Control-Max-Age", "600")
+    elif path.startswith("/api/v1.0/"):
+        # Lampa parser shim — read-only proxy. Any origin allowed.
+        response.headers.setdefault("Access-Control-Allow-Origin", "*")
+        response.headers.setdefault("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
     elif path.startswith("/static/"):
         # Static assets are public read-only; safe to allow any origin.
         response.headers.setdefault("Access-Control-Allow-Origin", "*")
@@ -749,6 +755,40 @@ def search():
     except Exception as e:
         app.logger.warning("Search provider failed: %s", e)
         return jsonify({"ok": False, "Results": [], "error": str(e)})
+
+
+@app.route("/api/v1.0/torrents")
+def lampa_parser_shim():
+    """Lampa-compatible torrent parser endpoint (v2.3 LAMPA-01).
+
+    Proxies to JACRED_URL/api/v1.0/torrents preserving the upstream response
+    shape verbatim so Lampa clients can use TorrStream as their `jackett_url`
+    parser. Survives jac.red mirror flips and ISP-side blocks of the public
+    jacred host because Oracle (Amsterdam) reaches all jacred mirrors and the
+    user only ever points Lampa at our HTTPS domain.
+
+    Forwards all query params unchanged (search, Query, title, year, is_serial,
+    apikey, etc.). If JACRED_KEY is set on the wrapper and the caller didn't
+    include apikey, ours is added.
+
+    On upstream failure: returns 502 with `{}` body (empty-object jacred
+    convention for "no results") so Lampa sees "nothing found" rather than a
+    parser-not-responding error.
+    """
+    upstream = f"{JACRED_URL}/api/v1.0/torrents"
+    params = dict(request.args)
+    if JACRED_KEY and "apikey" not in params:
+        params["apikey"] = JACRED_KEY
+
+    try:
+        r = requests.get(upstream, params=params, timeout=20)
+        ct = r.headers.get("Content-Type", "application/json")
+        # Pass through the body verbatim — Lampa parses jacred's native shape
+        # (flat array of {title, size, sid, tracker, magnet, ...}).
+        return Response(r.content, status=r.status_code, content_type=ct)
+    except Exception as e:
+        app.logger.warning("Lampa parser shim upstream failed: %s", e)
+        return Response("{}", status=502, content_type="application/json")
 
 
 @app.route("/api/recent-searches", methods=["GET"])

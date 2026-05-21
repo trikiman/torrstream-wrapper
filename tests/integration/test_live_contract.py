@@ -99,3 +99,34 @@ class TestLiveContract:
         # consume + close to free the connection without downloading whole file
         next(r.iter_content(chunk_size=16), None)
         r.close()
+
+    def test_lampa_parser_shim_returns_jacred_native_shape(self, live_session, live_base):
+        # /api/v1.0/torrents proxies to JACRED_URL preserving the raw response.
+        # Lampa must be able to parse the response identically to a direct
+        # jac.red call. Verifies LAMPA-01.
+        r = live_session.get(f"{live_base}/api/v1.0/torrents?search=matrix", timeout=30)
+        assert r.status_code in (200, 502)  # 502 only if jac.red is fully unreachable from Oracle
+        if r.status_code == 502:
+            pytest.skip("upstream jac.red unreachable from Oracle (transient)")
+
+        # Body shape: list (records) or dict (no results / older jacred)
+        try:
+            data = r.json()
+        except Exception:
+            pytest.fail(f"non-JSON body: {r.text[:200]}")
+
+        if isinstance(data, list) and data:
+            # Verify each record has the fields Lampa needs
+            sample = data[0]
+            assert "title" in sample
+            assert "magnet" in sample or "tracker" in sample
+
+    def test_lampa_parser_shim_has_cors(self, live_session, live_base):
+        # Cross-origin reads must work — Lampa client lives on lampa.mx and
+        # fetches our parser cross-origin. Verifies LAMPA-02.
+        r = live_session.get(
+            f"{live_base}/api/v1.0/torrents?search=test",
+            headers={"Origin": "https://lampa.mx"},
+            timeout=30,
+        )
+        assert r.headers.get("Access-Control-Allow-Origin") == "*"
