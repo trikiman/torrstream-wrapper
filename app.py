@@ -477,8 +477,10 @@ def _cors_headers(response):
         response.headers.setdefault("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         response.headers.setdefault("Access-Control-Allow-Headers", "Content-Type")
         response.headers.setdefault("Access-Control-Max-Age", "600")
-    elif path.startswith("/api/v1.0/"):
+    elif path.startswith("/api/v1.0/") or path.startswith("/api/v2.0/"):
         # Lampa parser shim — read-only proxy. Any origin allowed.
+        # /api/v1.0/torrents — jacred-flavored, parser_torrent_type=jacred
+        # /api/v2.0/indexers/all/results — Jackett-flavored, parser_torrent_type=jackett
         response.headers.setdefault("Access-Control-Allow-Origin", "*")
         response.headers.setdefault("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
     elif path.startswith("/static/"):
@@ -775,19 +777,35 @@ def lampa_parser_shim():
     convention for "no results") so Lampa sees "nothing found" rather than a
     parser-not-responding error.
     """
-    upstream = f"{JACRED_URL}/api/v1.0/torrents"
+    return _lampa_proxy("/api/v1.0/torrents")
+
+
+@app.route("/api/v2.0/indexers/all/results")
+def lampa_jackett_shim():
+    """Jackett-compatible parser endpoint for Lampa's `parser_torrent_type=jackett`.
+
+    Lampa's jackett path actually hits `/api/v2.0/indexers/all/results` (the
+    Jackett REST shape), not `/api/v1.0/torrents`. jacred mirrors transparently
+    accept both paths and return the same flat-array response shape, so we
+    proxy this path to the upstream's same endpoint. Forwards all query params
+    (apikey, Query, title, title_original, year, is_serial, genres, etc.).
+    """
+    return _lampa_proxy("/api/v2.0/indexers/all/results")
+
+
+def _lampa_proxy(upstream_path):
+    """Shared proxy logic for the Lampa parser shim endpoints."""
+    upstream = f"{JACRED_URL}{upstream_path}"
     params = dict(request.args)
-    if JACRED_KEY and "apikey" not in params:
+    if JACRED_KEY and not params.get("apikey"):
         params["apikey"] = JACRED_KEY
 
     try:
         r = requests.get(upstream, params=params, timeout=20)
         ct = r.headers.get("Content-Type", "application/json")
-        # Pass through the body verbatim — Lampa parses jacred's native shape
-        # (flat array of {title, size, sid, tracker, magnet, ...}).
         return Response(r.content, status=r.status_code, content_type=ct)
     except Exception as e:
-        app.logger.warning("Lampa parser shim upstream failed: %s", e)
+        app.logger.warning("Lampa parser shim upstream failed (%s): %s", upstream_path, e)
         return Response("{}", status=502, content_type="application/json")
 
 

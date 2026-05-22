@@ -128,3 +128,49 @@ class TestLampaParserShimCors:
         r = client.get("/api/v1.0/torrents?search=x")
         # Read-only proxy — only GET/HEAD/OPTIONS expected
         assert "GET" in r.headers.get("Access-Control-Allow-Methods", "")
+
+
+@pytest.mark.smoke
+class TestLampaJackettShim:
+    """Lampa's parser_torrent_type=jackett uses the Jackett REST shape:
+    GET /api/v2.0/indexers/all/results?apikey=...&Query=...&title=...&year=...
+    Wrapper proxies this path to the same upstream — jacred mirrors accept
+    both v1.0/torrents and v2.0/indexers paths transparently.
+    """
+
+    def test_jackett_path_proxies_to_same_upstream(self, client, mocker):
+        upstream_body = [{"title": "Matrix", "size": 1000000, "sid": 50, "tracker": "rutor", "magnet": "magnet:?xt=urn:btih:abc"}]
+        fake = mocker.patch("requests.get")
+        fake.return_value.status_code = 200
+        fake.return_value.content = json.dumps(upstream_body).encode("utf-8")
+        fake.return_value.headers = {"Content-Type": "application/json"}
+
+        r = client.get("/api/v2.0/indexers/all/results?apikey=&Query=Matrix&year=1999&is_serial=1")
+        assert r.status_code == 200
+        # Body returned unchanged — same as v1.0 path
+        data = r.get_json()
+        assert isinstance(data, list)
+        assert data[0]["title"] == "Matrix"
+
+        # Verify the upstream URL hit is /api/v2.0/indexers/all/results, not /api/v1.0/torrents
+        called_url = fake.call_args[0][0]
+        assert called_url.endswith("/api/v2.0/indexers/all/results")
+        params = fake.call_args[1]["params"]
+        assert params["Query"] == "Matrix"
+        assert params["year"] == "1999"
+
+    def test_jackett_cors_headers(self, client, mocker):
+        fake = mocker.patch("requests.get")
+        fake.return_value.status_code = 200
+        fake.return_value.content = b"[]"
+        fake.return_value.headers = {"Content-Type": "application/json"}
+
+        r = client.get("/api/v2.0/indexers/all/results?Query=x")
+        assert r.headers.get("Access-Control-Allow-Origin") == "*"
+
+    def test_jackett_upstream_failure(self, client, mocker):
+        fake = mocker.patch("requests.get")
+        fake.side_effect = Exception("boom")
+        r = client.get("/api/v2.0/indexers/all/results?Query=x")
+        assert r.status_code == 502
+        assert r.get_data(as_text=True) == "{}"
