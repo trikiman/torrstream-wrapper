@@ -1,5 +1,21 @@
 # Milestones
 
+## v2.3 Lampa parser shim (Shipped: 2026-05-22)
+
+**Phases completed:** 1 phase, 1 plan, 3 requirements
+
+**Key accomplishments:**
+
+- TorrStream now exposes both `/api/v1.0/torrents` (jacred-flavored, for `parser_torrent_type=jacred`) and `/api/v2.0/indexers/all/results` (Jackett-flavored, for `parser_torrent_type=jackett`) proxy routes that forward to the configured `JACRED_URL`. Lampa points at `https://tv.trikiman.shop` once and survives any jacred mirror flip / ISP block of jac.red.
+- Both routes return upstream body verbatim (no wrapping, no transformation) so Lampa parses jacred's native shape without changes. CORS `Access-Control-Allow-Origin: *` on both paths.
+- 502 with `{}` body on upstream failure — Lampa shows "no results" instead of "parser not responding".
+- Mid-phase discovery: Lampa's `parser_torrent_type=jackett` hits the Jackett REST URL pattern, not jacred's v1.0 path. jacred mirrors transparently accept both paths; we proxy each to its matching upstream. Captured by adding the v2.0 route same session.
+- Mid-phase discovery: auto-deploy webhook silently broken since project inception — looks for `torrstream.service` unit but the real unit on Oracle is `flask-wrapper.service`. Worked around via manual SSH `git pull && systemctl restart flask-wrapper.service`. Fix captured as v2.4 todo.
+- Lampa client switched from `https://jac.red` to `https://tv.trikiman.shop` and verified live: 20 Matrix torrents rendered.
+- Tests: 11 new contract tests + 2 new integration tests; full suite 79/76 PASS.
+
+---
+
 ## v2.2 Robustness + Coverage (Shipped: 2026-05-14)
 
 **Phases completed:** 3 phases, 5 plans, 9 requirements

@@ -1,56 +1,34 @@
 # Roadmap: TorrStream
 
-## Active Milestone: v2.3 Lampa parser shim
+## Status
 
-Single-phase milestone driven by a real user-blocking issue surfaced 2026-05-17:
-plain `http://jac.red` is intermittently blocked / throttled on the user's
-network, killing Lampa torrent search. Workaround (switching to `https://jac.red`
-in Lampa settings) works but is fragile — every time the parser host changes
-or HTTPS gets blocked too, the user is stuck.
+**No active milestone.** Last shipped: **v2.3 Lampa parser shim** (2026-05-22).
 
-Robust fix: expose `/api/v1.0/torrents` on TorrStream that proxies to jac.red.
-Lampa points at `https://tv.trikiman.shop` as its parser. Survives any single
-jacred mirror going down because Oracle Amsterdam reaches all of them and we
-already proxy via `JACRED_URL` env var (default `https://jac.red`).
+To start the next milestone:
 
-### Phases
+- `/gsd-new-milestone` — questioning → research → requirements → roadmap.
+- Or review captured ideas: `/gsd-review-backlog`, `/gsd-check-todos`.
 
-- [ ] **Phase 1: Lampa parser shim** — expose `/api/v1.0/torrents` proxy, add CORS, switch Lampa client to use it. Survives jacred mirror flips and ISP-side blocks of jac.red.
+## v2.4 candidates (queued from prior milestones)
 
-### Phase Details
-
-#### Phase 1: Lampa parser shim
-
-**Goal:** TorrStream can be used as a Lampa-compatible torrent parser. Switching Lampa's `jackett_url` from `https://jac.red` to `https://tv.trikiman.shop` works without further configuration.
-
-**Depends on:** Nothing (v2.2 wrapper already proxies jac.red via `/api/search` — this just exposes it under jacred's native URL shape).
-
-**Requirements:** [LAMPA-01, LAMPA-02]
-
-**Success Criteria:**
-1. `GET /api/v1.0/torrents?search=Matrix` returns the **raw jacred response shape** (flat array of `{title, size, sid, tracker, magnet, ...}`), unchanged from upstream — Lampa parses it natively.
-2. Other query params (`Query`, `title`, `year`, `apikey`, `is_serial`, etc.) forwarded to jac.red unchanged.
-3. CORS headers permit cross-origin fetch from `lampa.mx` and other Lampa hosts.
-4. Endpoint survives upstream jac.red being temporarily unreachable — returns 502 with diagnostics body, never silently 200.
-5. `JACRED_URL` env var override works — production uses `https://jac.red`; can be flipped to a different mirror without code change.
-6. Lampa client switched to `https://tv.trikiman.shop` parser URL — torrent search renders results unchanged.
-
-**Plans:** 1
-- 01-01: Implement `/api/v1.0/torrents` route, extend CORS to `/api/v1.0/*`, add 2 contract tests + 1 integration test, deploy, switch Lampa, verify.
-
-## Progress
-
-| Phase | Plans Complete | Status |
-|-------|----------------|--------|
-| 1. Lampa parser shim | 0/1 | Pending |
+- **fix-webhook-unit-name** (NEW from v2.3): auto-deploy webhook silently broken — captured at `.planning/todos/pending/2026-05-22-fix-webhook-unit-name.md`. Probably worth fixing first in v2.4 so subsequent deploys are smoother.
+- **QUAL-03**: User-driven iOS Safari manual walkthrough.
+- **PROD-01..05**: Base path config, user auth, richer metadata, chapters, subtitles in Vidstack.
+- **ENG-01/02**: Module split + pinned dependency manifest.
+- **INFRA-04**: Re-migrate to ARM Ampere if `oracle-hunter` catches capacity.
+- **TEST-01**: Playwright UI suite.
+- **LAMPA-03** (potential): Multi-mirror failover for the parser shim.
 
 ## Archived Milestones
+
+### v2.3 Lampa parser shim (shipped 2026-05-22)
+- 1 phase, 1 plan, 3 reqs. `/api/v1.0/torrents` + `/api/v2.0/indexers/all/results` proxy routes; Lampa now uses TorrStream as parser. See `.planning/milestones/v2.3-ROADMAP.md`.
 
 ### v2.2 Robustness + Coverage (shipped 2026-05-14)
 - 3 phases, 5 plans, 9 reqs, 67 tests. API hygiene + UX completeness + pytest harness. See `.planning/milestones/v2.2-ROADMAP.md`.
 
 ### v2.1 Player UX + iOS readiness (shipped 2026-05-12)
-- 2 phases, 5 plans. Plyr→Vidstack swap, audio fix, Oracle topology docs. See `.planning/milestones/v2.1-ROADMAP.md`.
+- 2 phases, 5 plans. Plyr→Vidstack swap, audio fix. See `.planning/milestones/v2.1-ROADMAP.md`.
 
 ### v2.0 Oracle Migration (shipped 2026-05-12)
 - 3 phases, 7 plans. AWS→Oracle migration. See `.planning/phases/01-oracle-baseline/`.
