@@ -1,5 +1,5 @@
 // TorrStream Service Worker — offline shell caching
-const CACHE_NAME = "torrstream-v8";
+const CACHE_NAME = "torrstream-v9";
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, "");
 const withBase = (path) => `${SCOPE_PATH}${path}` || path;
 const API_PREFIX = withBase("/api/");
@@ -18,6 +18,17 @@ const SHELL_ASSETS = [
   withBase("/static/vidstack/chunks/vidstack-CwgW6Poq.js"),
   withBase("/static/vidstack/chunks/vidstack-kIsqtfYD.js"),
   withBase("/static/vidstack/chunks/vidstack--CtACNuZ.js"),
+  // Lazy-loaded chunks + captions modules pulled in during playback.
+  withBase("/static/vidstack/chunks/vidstack-2f5gzOW6.js"),
+  withBase("/static/vidstack/chunks/vidstack-BahkaFQF.js"),
+  withBase("/static/vidstack/chunks/vidstack-Dge3KT8k.js"),
+  withBase("/static/vidstack/chunks/vidstack-DiNS2Vx5.js"),
+  withBase("/static/vidstack/chunks/vidstack-UvlHgFEO.js"),
+  withBase("/static/vidstack/captions/prod.js"),
+  withBase("/static/vidstack/captions/prod/index.js"),
+  withBase("/static/vidstack/captions/prod/errors.js"),
+  withBase("/static/vidstack/captions/prod/srt-parser.js"),
+  withBase("/static/vidstack/captions/prod/ssa-parser.js"),
 ];
 
 self.addEventListener("install", (e) => {
@@ -62,6 +73,25 @@ self.addEventListener("fetch", (e) => {
   if (url.pathname.startsWith(API_PREFIX)) {
     e.respondWith(
       fetch(e.request).catch(() => caches.match(e.request))
+    );
+    return;
+  }
+
+  // Network-first for page navigations — deploys of the (inline-JS) app shell
+  // must reach clients immediately; cached copy is only an offline fallback.
+  if (e.request.mode === "navigate" || url.pathname === (withBase("/") || "/")) {
+    e.respondWith(
+      fetch(e.request)
+        .then((resp) => {
+          if (resp.ok && e.request.method === "GET") {
+            const clone = resp.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(e.request, clone));
+          }
+          return resp;
+        })
+        .catch(() =>
+          caches.match(e.request).then((cached) => cached || caches.match(withBase("/") || "/"))
+        )
     );
     return;
   }

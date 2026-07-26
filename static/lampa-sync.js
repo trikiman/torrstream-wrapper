@@ -150,7 +150,13 @@
             var lastFightCount = 0;
 
             function performSeek(v) {
-                if (saved >= v.duration - 5) return false;
+                if (saved >= v.duration - 5) {
+                    // Saved position is at/past the end — permanently pointless
+                    // to keep retrying, so stop the 250ms seeker loop.
+                    log('saved position at/near end of file, skip resume');
+                    if (seeker) clearInterval(seeker);
+                    return false;
+                }
                 try {
                     v.currentTime = saved;
                     seekedOnce = true;

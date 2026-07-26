@@ -656,6 +656,10 @@ let currentTorrent = null;
 let currentFiles = [];
 let currentFileIndex = 1;
 let saveTimer = null;
+let autoNextTimer = null;
+// Cancellation token: bumped on every playFile() start and on closePlayer().
+// Async continuations inside playFile bail out when their token goes stale.
+let playToken = 0;
 let searchTimer = null;
 let allTorrents = [];
 let lastStatus = null;
@@ -735,6 +739,20 @@ function fmtTime(sec) {
 
 function cleanTitle(title) {
   return (title || "").replace(/^\[LAMPA\]\s*/i, "").trim() || "Без названия";
+}
+
+// HTML-escape any externally-sourced string before interpolating into innerHTML.
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+// For values passed as inline onclick arguments: JSON-encode (valid JS string
+// literal, quotes/backslashes escaped) then HTML-escape, so the value can
+// neither break out of the attribute nor inject markup.
+function jsArg(s) {
+  return esc(JSON.stringify(String(s ?? "")));
 }
 
 function cacheSearchResults(query, results) {
@@ -862,14 +880,21 @@ function renderAll() {
     allGrid.innerHTML = "";
     emptyState.style.display = "block";
     emptyAction.style.display = "none";
-    if (lastStatus?.torrserver?.ok === false) {
+    // lastStatus is usually data.diagnostics from /api/torrents
+    // ({ok, torrent_count, state, error}), but may be the /api/status shape
+    // ({torrserver: {ok, url, error}}) — handle both.
+    const upstreamDown = lastStatus?.state === "upstream_unavailable" || lastStatus?.torrserver?.ok === false;
+    if (upstreamDown) {
       emptyIcon.textContent = "⚠️";
       emptyTitle.textContent = "Нет подключения к TorrServer";
-      emptyText.textContent = lastStatus?.torrserver?.error
-        ? `Проверьте TorrServer (${lastStatus.torrserver.url}): ${lastStatus.torrserver.error}`
+      const upstreamError = lastStatus?.error || lastStatus?.torrserver?.error;
+      emptyText.textContent = upstreamError
+        ? (lastStatus?.torrserver?.url
+            ? `Проверьте TorrServer (${lastStatus.torrserver.url}): ${upstreamError}`
+            : `Проверьте TorrServer: ${upstreamError}`)
         : "Проверьте настройки подключения и повторите попытку.";
       emptyAction.style.display = "inline-flex";
-    } else if (lastStatus?.torrserver?.ok === true) {
+    } else if (lastStatus?.ok === true || lastStatus?.torrserver?.ok === true) {
       emptyIcon.textContent = "🎞️";
       emptyTitle.textContent = "Библиотека пока пуста";
       emptyText.textContent = "TorrServer доступен, но сейчас в библиотеке нет торрентов. Добавьте magnet-ссылку или используйте поиск.";
@@ -886,24 +911,23 @@ function renderAll() {
 
 function cardHTML(t, showProgress) {
   const title = cleanTitle(t.title);
-  const safeTitle = title.replace(/'/g, "\\'");
   const pct = t.duration > 0 ? Math.round((t.position / t.duration) * 100) : 0;
   const poster = t.poster
-    ? `<img class="card-poster" src="${t.poster}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" loading="lazy"><div class="card-poster-placeholder" style="display:none">🎬</div>`
+    ? `<img class="card-poster" src="${esc(t.poster)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" loading="lazy"><div class="card-poster-placeholder" style="display:none">🎬</div>`
     : `<div class="card-poster-placeholder">🎬</div>`;
   const badge = t.stat === 3 ? '<div class="card-badge">▶</div>' : '';
   const epBadge = t.last_file_index > 1 ? `<div class="card-episode-badge">EP ${t.last_file_index}</div>` : '';
   const progress = (showProgress && pct > 0) ? `<div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>` : "";
   const meta = [fmtSize(t.torrent_size), pct > 0 ? `${pct}%` : ""].filter(Boolean).join(" · ");
 
-  return `<div class="card" onclick="openTorrent('${t.hash}')">
+  return `<div class="card" onclick="openTorrent(${jsArg(t.hash)})">
     ${badge}${epBadge}${poster}
     <div class="card-info">
-      <div class="card-title">${title}</div>
-      <div class="card-meta">${meta}</div>
+      <div class="card-title">${esc(title)}</div>
+      <div class="card-meta">${esc(meta)}</div>
       ${progress}
       <div class="card-actions">
-        <button class="card-delete" onclick="event.stopPropagation();confirmRemoveTorrent('${t.hash}', '${safeTitle}')">Удалить</button>
+        <button class="card-delete" onclick="event.stopPropagation();confirmRemoveTorrent(${jsArg(t.hash)}, ${jsArg(title)})">Удалить</button>
       </div>
     </div>
   </div>`;
@@ -915,25 +939,24 @@ function searchResultHTML(item, key, options = {}) {
   const size = fmtSize(item.Size || item.torrent_size);
   const seeds = item.Seeders || 0;
   const meta = [tracker, size, seeds > 0 ? `${seeds} сидов` : ""].filter(Boolean).join(" · ");
-  const magnet = (item.MagnetUri || "").replace(/'/g, "\\'");
-  const safeTitle = title.replace(/'/g, "\\'");
+  const magnet = item.MagnetUri || "";
 
   if (options.localHash) {
-    return `<div class="result-item" onclick="openTorrent('${options.localHash}')">
+    return `<div class="result-item" onclick="openTorrent(${jsArg(options.localHash)})">
       <div class="result-info">
-        <div class="result-title">${title}</div>
-        <div class="result-meta">${meta || "Уже в библиотеке"}</div>
+        <div class="result-title">${esc(title)}</div>
+        <div class="result-meta">${esc(meta) || "Уже в библиотеке"}</div>
       </div>
-      <button class="result-add" onclick="event.stopPropagation();openTorrent('${options.localHash}')">Открыть</button>
+      <button class="result-add" onclick="event.stopPropagation();openTorrent(${jsArg(options.localHash)})">Открыть</button>
     </div>`;
   }
 
   return `<div class="result-item">
     <div class="result-info">
-      <div class="result-title">${title}</div>
-      <div class="result-meta">${meta}</div>
+      <div class="result-title">${esc(title)}</div>
+      <div class="result-meta">${esc(meta)}</div>
     </div>
-    <button class="result-add" id="btn-${key}" onclick="addFromSearch('${key}', '${magnet}', '${safeTitle}')">
+    <button class="result-add" id="btn-${key}" onclick="addFromSearch('${key}', ${jsArg(magnet)}, ${jsArg(title)})">
       + Добавить
     </button>
   </div>`;
@@ -945,8 +968,8 @@ function showEpisodeMessage(title, icon, message, subtext = "") {
   document.getElementById("episodeGrid").innerHTML = `
     <div class="empty" style="grid-column:1 / -1">
       <div class="icon">${icon}</div>
-      <div>${message}</div>
-      ${subtext ? `<div>${subtext}</div>` : ""}
+      <div>${esc(message)}</div>
+      ${subtext ? `<div>${esc(subtext)}</div>` : ""}
     </div>
   `;
   document.getElementById("episodeOverlay").classList.add("active");
@@ -954,14 +977,21 @@ function showEpisodeMessage(title, icon, message, subtext = "") {
 }
 
 function showPlayerError(message, details = "") {
+  // Stop position saves and playback before blowing away the video element —
+  // otherwise the interval keeps firing and audio can keep playing detached.
+  if (saveTimer) clearInterval(saveTimer);
+  const playingVideo = document.querySelector(".video-wrap video");
+  if (playingVideo) {
+    try { playingVideo.pause(); } catch (e) {}
+  }
   document.getElementById("playerTitle").textContent = cleanTitle(currentTorrent?.title);
   document.getElementById("playerEpInfo").textContent = "";
   document.getElementById("playerNextBtn").style.display = "none";
   document.querySelector(".video-wrap").innerHTML = `
     <div class="empty" style="padding:40px 24px;">
       <div class="icon">⚠️</div>
-      <div>${message}</div>
-      ${details ? `<div>${details}</div>` : ""}
+      <div>${esc(message)}</div>
+      ${details ? `<div>${esc(details)}</div>` : ""}
     </div>
   `;
   document.getElementById("playerOverlay").classList.add("active");
@@ -997,6 +1027,7 @@ async function openTorrent(hash) {
   try {
     const r = await fetch(`${API}/api/files/${hash}`);
     const data = await r.json();
+    if (hash !== currentHash) return; // stale response — another torrent was opened meanwhile
     currentFiles = data.file_stats || [];
     const lastIdx = data.last_file_index || 0;
 
@@ -1028,6 +1059,7 @@ async function openTorrent(hash) {
     } else {
       // Single file — play directly
       const f = currentFiles[0];
+      currentFileIndex = f.id || 1;
       playFile(hash, f.path, f.id || 1);
       document.getElementById("playerTitle").textContent = cleanTitle(currentTorrent?.title);
       document.getElementById("playerEpInfo").textContent = "";
@@ -1055,7 +1087,7 @@ function showEpisodePanel(hash, files, lastIdx, viewedIndices) {
   const grid = document.getElementById("episodeGrid");
 
   grid.innerHTML = files.map((f, i) => {
-    const idx = f.id || (i + 1);
+    const idx = Number(f.id) || (i + 1);
     const name = getFilename(f.path);
     const size = fmtSize(f.length);
     const pos = f.position || 0;
@@ -1079,13 +1111,13 @@ function showEpisodePanel(hash, files, lastIdx, viewedIndices) {
     return `<div class="${cls}" onclick="playEpisode(${idx})">
       <div class="ep-num">${isWatched ? "✓" : idx}</div>
       <div class="ep-info">
-        <div class="ep-name">${name}</div>
-        <div class="ep-meta">${metaParts}</div>
+        <div class="ep-name">${esc(name)}</div>
+        <div class="ep-meta">${esc(metaParts)}</div>
         ${progressBar}
       </div>
       <div class="ep-actions">
         <button class="ep-action-btn" onclick="event.stopPropagation();playEpisode(${idx})" title="Играть">▶</button>
-        <button class="ep-action-btn ep-download-btn" onclick="event.stopPropagation();downloadFile('${hash}', '${(f.path || '').replace(/'/g, "\\'")}', ${idx})" title="Скачать">⬇</button>
+        <button class="ep-action-btn ep-download-btn" onclick="event.stopPropagation();downloadFile(${jsArg(hash)}, ${jsArg(f.path || '')}, ${idx})" title="Скачать">⬇</button>
       </div>
     </div>`;
   }).join("");
@@ -1170,6 +1202,7 @@ function playNextEpisode() {
 //   5. Fetch saved position async + seek when metadata loads.
 //   6. Probe runs in parallel, only surfaces errors if the stream actually fails.
 async function playFile(hash, filename, index) {
+  const tok = ++playToken;
   const fname = getFilename(filename);
   const streamUrl = `${API}/api/stream/${encodeURIComponent(fname)}?hash=${hash}&index=${index}`;
 
@@ -1191,6 +1224,7 @@ async function playFile(hash, filename, index) {
   let video = null;
   for (let tries = 0; tries < 30; tries++) {
     await new Promise(r => setTimeout(r, 100));
+    if (tok !== playToken) return;
     video = mediaPlayer.querySelector("video");
     if (video) break;
   }
@@ -1206,6 +1240,7 @@ async function playFile(hash, filename, index) {
   for (let tries = 0; tries < 8; tries++) {
     if (video.currentSrc || video.src) break;
     await new Promise(r => setTimeout(r, 100));
+    if (tok !== playToken) return;
   }
   if (!(video.currentSrc || video.src)) {
     try {
@@ -1230,6 +1265,7 @@ async function playFile(hash, filename, index) {
   fetch(`${streamUrl}&probe=1`)
     .then(r => r.json())
     .then(probe => {
+      if (tok !== playToken) return;
       if (probe && probe.ok === false) {
         showPlayerError("Поток недоступен", probe.error || "Проверьте источник и повторите попытку.");
       }
@@ -1245,11 +1281,13 @@ async function playFile(hash, filename, index) {
     const posResp = await fetch(`${API}/api/position/${hash}?file_index=${index}`);
     pos = await posResp.json();
   } catch (e) { /* fall through with null */ }
+  if (tok !== playToken) return;
 
   // Seek to saved position once metadata is available. play() was already
   // called above (in the user-gesture chain), so this just handles the seek.
   // If pos < 10 or unavailable, no-op — the existing playback continues.
   const doResume = () => {
+    if (tok !== playToken) return;
     if (pos && pos.ok !== false && pos.position > 10) {
       try {
         video.currentTime = pos.position;
@@ -1286,10 +1324,12 @@ async function playFile(hash, filename, index) {
 
   video.onerror = async () => {
     try {
-      const probeResp = await fetch(probeUrl);
+      const probeResp = await fetch(`${streamUrl}&probe=1`);
       const probe = await probeResp.json();
+      if (tok !== playToken) return;
       showPlayerError("Ошибка воспроизведения", probe.error || "Поток прерван или недоступен.");
     } catch (e) {
+      if (tok !== playToken) return;
       showPlayerError("Ошибка воспроизведения", "Поток прерван или недоступен.");
     }
   };
@@ -1297,6 +1337,7 @@ async function playFile(hash, filename, index) {
   // Auto-next when episode ends
   video.onended = async () => {
     const result = await savePos(hash, index, video.duration, video.duration);
+    if (tok !== playToken) return;
     if (result?.viewed_sync_attempted && !result?.viewed_synced) {
       showToast("Серия завершена, но синхронизация статуса не удалась");
     } else {
@@ -1305,7 +1346,7 @@ async function playFile(hash, filename, index) {
     // Auto-play next after 3s
     const currentIdx = currentFiles.findIndex(f => (f.id || 0) === index);
     if (currentFiles.length > 1 && currentIdx < currentFiles.length - 1) {
-      setTimeout(() => playNextEpisode(), 3000);
+      autoNextTimer = setTimeout(() => playNextEpisode(), 3000);
     }
   };
 }
@@ -1329,6 +1370,8 @@ async function savePos(hash, index, currentTime, duration) {
 }
 
 function closePlayer() {
+  playToken++; // cancel any in-flight playFile continuations
+  if (autoNextTimer) { clearTimeout(autoNextTimer); autoNextTimer = null; }
   const mp = document.getElementById("mediaPlayer");
   const video = mp ? mp.querySelector("video") : null;
   if (saveTimer) clearInterval(saveTimer);
