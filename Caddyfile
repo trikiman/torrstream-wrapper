@@ -1,5 +1,8 @@
 {
 	email rust-gold@mail.ru
+	# Without this, config reloads wait forever for active streaming
+	# connections (1h timeouts) to drain — systemd then kills the reload.
+	grace_period 10s
 }
 
 tv.trikiman.shop {
