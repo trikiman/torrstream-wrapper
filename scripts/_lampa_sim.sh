@@ -5,7 +5,7 @@
 
 set -eu
 
-AUTH="torrstream:m6wkt8jhrsb4x5qiz3u2ngyo"
+AUTH="${TORRSERVER_USER:?set TORRSERVER_USER}:${TORRSERVER_PASS:?set TORRSERVER_PASS}"
 HASH="dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c"
 URL="http://127.0.0.1:8090/stream/Big%20Buck%20Bunny.mp4?link=${HASH}&index=2&play"
 

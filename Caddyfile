@@ -4,11 +4,27 @@
 
 tv.trikiman.shop {
 	encode gzip
+	log {
+		output file /var/log/torrstream/caddy-access.log
+	}
 	reverse_proxy 127.0.0.1:5000 {
 		header_up Host {host}
 		header_up X-Real-IP {remote_host}
 		header_up X-Forwarded-For {remote_host}
 		header_up X-Forwarded-Proto {scheme}
+		flush_interval -1
+		transport http {
+			read_timeout 1h
+			write_timeout 1h
+		}
+	}
+}
+
+# TorrServer for Lampa clients (BasicAuth enforced by TorrServer itself).
+# Streaming needs the same no-buffering + long-timeout tuning as the wrapper.
+ts.trikiman.shop {
+	encode gzip
+	reverse_proxy 127.0.0.1:8090 {
 		flush_interval -1
 		transport http {
 			read_timeout 1h

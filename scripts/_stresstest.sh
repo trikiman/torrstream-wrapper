@@ -7,7 +7,7 @@
 # Goal: identify where Oracle 1 CPU / 1 GB / 4 GB swap saturates.
 set -eu
 
-AUTH="torrstream:m6wkt8jhrsb4x5qiz3u2ngyo"
+AUTH="${TORRSERVER_USER:?set TORRSERVER_USER}:${TORRSERVER_PASS:?set TORRSERVER_PASS}"
 BASE="http://127.0.0.1:8090"
 LOG=/tmp/stress.log
 STATS=/tmp/stress.stats

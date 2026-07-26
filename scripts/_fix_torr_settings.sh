@@ -2,8 +2,11 @@
 # Restore ReaderReadAHead=95 + PreloadCache=50 (accidentally zeroed by a prior
 # partial set call) and keep TorrentDisconnectTimeout=300.
 set -eu
-AUTH="torrstream:m6wkt8jhrsb4x5qiz3u2ngyo"
+AUTH="${TORRSERVER_USER:?set TORRSERVER_USER}:${TORRSERVER_PASS:?set TORRSERVER_PASS}"
 
+# NOTE: PeersListenPort MUST stay 22115 (the firewalled-open port). Setting it
+# to 0 caused the v2.5 peer-port regression: TorrServer picked a random port on
+# each restart, which the firewall blocked, killing inbound peer connections.
 curl -s -u "$AUTH" -X POST http://127.0.0.1:8090/settings \
   -H 'Content-Type: application/json' \
   -d '{"action":"set","sets":{
@@ -31,7 +34,7 @@ curl -s -u "$AUTH" -X POST http://127.0.0.1:8090/settings \
     "DownloadRateLimit":0,
     "UploadRateLimit":0,
     "ConnectionsLimit":25,
-    "PeersListenPort":0,
+    "PeersListenPort":22115,
     "SslPort":0,
     "SslCert":"",
     "SslKey":"",

@@ -20,6 +20,10 @@ The shell also exposes:
 - `app.py` - Flask backend and API routes
 - `templates/index.html` - main frontend UI
 - `static/` - manifest, service worker, icons
+- `tests/` - pytest suite (68 smoke + 12 integration)
+- `docs/` - deployment and testing documentation
+- `Caddyfile` - reverse proxy config
+- `requirements-dev.txt` - dev/test dependencies
 - `.planning/` - GSD project planning artifacts
 
 ## Runtime Notes
@@ -38,15 +42,21 @@ Run the smoke check helper against a local wrapper instance:
 python scripts/smoke_check.py
 ```
 
+Verify with the automated test suite:
+
+```bash
+pip install -r requirements-dev.txt && pytest -m smoke
+```
+
 Config is driven by environment variables in `app.py`:
 - `TORRSERVER_URL`
 - `TORRSERVER_USER`
 - `TORRSERVER_PASS`
 - `JACRED_URL`
 - `JACRED_KEY`
+- `GITHUB_WEBHOOK_SECRET`
+- `TORRSTREAM_SERVICE` (systemd unit restarted by the webhook; default `flask-wrapper.service`)
 
 ## Status
-
-_Auto-deploy verified: 
 
 This repo is set up as a brownfield GSD project with planning artifacts under `.planning/`.

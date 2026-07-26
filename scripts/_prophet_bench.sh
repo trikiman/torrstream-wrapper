@@ -3,7 +3,7 @@
 # Runs an active stream in background, samples torrserver stats every 5s for 60s.
 set -eu
 
-AUTH="torrstream:m6wkt8jhrsb4x5qiz3u2ngyo"
+AUTH="${TORRSERVER_USER:?set TORRSERVER_USER}:${TORRSERVER_PASS:?set TORRSERVER_PASS}"
 HASH="7848e598e5b8c1a2cd50f4432d9755377b12d76d"
 BASE="http://127.0.0.1:8090"
 

@@ -297,5 +297,4 @@ Expected after the current path normalization work:
 
 ## Current Gaps
 
-- This project still has no automated test suite
 - playback verification still requires a real TorrServer instance and real data

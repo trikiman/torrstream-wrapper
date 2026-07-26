@@ -26,6 +26,10 @@ The application is a Flask server that serves:
 - `/api/add`
 - `/api/remove/<torrent_hash>`
 - `/api/search`
+- `/api/recent-searches` (`GET`, `POST`, `DELETE`)
+- `/api/github-webhook` (`POST`)
+- `/api/v1.0/torrents` (`GET`, Lampa parser shim)
+- `/api/v2.0/indexers/all/results` (`GET`, Jackett-shape shim)
 
 Local startup entrypoint:
 
@@ -47,6 +51,8 @@ Environment variables:
 - `TORRSERVER_PASS`
 - `JACRED_URL`
 - `JACRED_KEY`
+- `GITHUB_WEBHOOK_SECRET`
+- `TORRSTREAM_SERVICE` (systemd unit restarted by the webhook; default `flask-wrapper.service`)
 
 Current code defaults in `app.py`:
 - `TORRSERVER_URL=http://127.0.0.1:8090`

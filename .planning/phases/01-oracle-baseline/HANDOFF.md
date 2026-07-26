@@ -10,7 +10,7 @@ Stored on-box at `/etc/torrstream/torrserver.env` (root-owned, mode 600).
 | Key | Value |
 |---|---|
 | TorrServer user | `torrstream` |
-| TorrServer password | `m6wkt8jhrsb4x5qiz3u2ngyo` |
+| TorrServer password | (rotated — see /etc/torrstream/torrserver.env on host) |
 
 **For Lampa TorrServer settings on each client device:** set user/password on the *TorrServer* config page inside Lampa.
 

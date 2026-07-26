@@ -12,3 +12,15 @@ venv/
 .webhook-secret.txt
 positions.json
 recent_searches.json
+nul
+.vscode/
+.kiro/
+.pytest_cache/
+SKILL.md
+scripts/_probe_*.py
+scripts/_measure_*.py
+scripts/_smoke_oracle.py
+scripts/_cutover_probe.py
+scripts/_warmup_check.py
+scripts/_ts_status.py
+*.env
