@@ -34,3 +34,15 @@ class TestAdd:
         r = client.post("/api/add", json={"link": h})
         assert r.status_code == 200
         assert r.get_json()["ok"] is True
+
+    def test_loopback_url_rejected(self, client, mock_ts):
+        # SSRF guard (v2.4): TorrServer fetches http(s) links server-side, so
+        # internal targets must be refused before they reach it.
+        r = client.post("/api/add", json={"link": "http://127.0.0.1:8090/x.torrent"})
+        assert r.get_json()["ok"] is False
+        assert "invalid" in r.get_json()["error"].lower()
+
+    def test_metadata_service_url_rejected(self, client, mock_ts):
+        r = client.post("/api/add", json={"link": "http://169.254.169.254/opc/v2/instance/"})
+        assert r.get_json()["ok"] is False
+        assert "invalid" in r.get_json()["error"].lower()

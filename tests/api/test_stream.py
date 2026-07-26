@@ -2,12 +2,13 @@
 
 Locks in:
 - Missing hash query param → 400.
+- Malformed hash / non-numeric index → 400 (v2.4 — hash/index are interpolated
+  into the upstream TorrServer URL, so they must be validated like every other
+  hash-taking route; previously unvalidated, which allowed path traversal).
 - Probe mode (`?probe=1`) returns JSON diagnostics, not a stream.
 - Range requests are forwarded; Content-Range echoed back.
-- Invalid hash isn't validated by /api/stream (keeps the stream proxy fast and
-  permissive — TS handles unknown hashes by returning 4xx from upstream).
 
-Source: 2026-05-14 E2E audit Wave 1.4.
+Source: 2026-05-14 E2E audit Wave 1.4; hardened 2026-07-27.
 """
 import io
 
@@ -20,6 +21,18 @@ class TestStreamEndpoint:
         r = client.get("/api/stream/movie.mp4")
         assert r.status_code == 400
         assert "missing hash" in r.get_json()["error"]
+
+    def test_malformed_hash_returns_400(self, client):
+        r = client.get("/api/stream/movie.mp4?hash=../../settings")
+        assert r.status_code == 400
+        assert "invalid hash" in r.get_json()["error"]
+
+    def test_non_numeric_index_returns_400(self, client, known_hash):
+        r = client.get(f"/api/stream/movie.mp4?hash={known_hash}&index=1&play=/etc")
+        assert r.status_code != 400 or "invalid index" not in (r.get_json() or {}).get("error", "")
+        r = client.get(f"/api/stream/movie.mp4?hash={known_hash}&index=abc")
+        assert r.status_code == 400
+        assert "invalid index" in r.get_json()["error"]
 
     def test_probe_mode_returns_diagnostics(self, client, mocker, known_hash):
         # Mock requests.head used inside probe_stream_access if it exists,

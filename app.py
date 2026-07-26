@@ -3,19 +3,27 @@
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import os
 import re
+import socket
 import subprocess
+import tempfile
+import threading
 import time
 from pathlib import Path
+from urllib.parse import quote, urlparse
 
 import requests
 from flask import Flask, Response, jsonify, redirect, request, send_from_directory, stream_with_context
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.logger.setLevel(logging.INFO)
+# No endpoint accepts large bodies; cap uploads so an unauthenticated POST
+# can't buffer gigabytes into memory (webhook reads the body before HMAC check).
+app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 TORRSERVER = os.getenv("TORRSERVER_URL", "http://127.0.0.1:8090")
@@ -56,6 +64,8 @@ def load_positions():
             # normalise hash keys to lowercase (case-insensitive infohashes).
             migrated = {}
             for h, v in data.items():
+                if not isinstance(v, dict):
+                    continue  # corrupt/hand-edited entry — drop it, keep the rest
                 key = h.lower() if isinstance(h, str) else h
                 if "files" in v:
                     migrated[key] = v
@@ -67,16 +77,36 @@ def load_positions():
                         "updated": v.get("updated", 0),
                     }
             return migrated
-        except (json.JSONDecodeError, AttributeError) as e:
+        except (json.JSONDecodeError, AttributeError, TypeError, OSError) as e:
             app.logger.warning("Failed to parse positions.json: %s", e)
             return {}
     return {}
 
 
+# Serialize read-modify-write cycles on the JSON state files. Flask's dev server
+# is threaded; without a lock two concurrent POSTs interleave writes into the
+# same temp file and can promote garbage JSON over the whole positions DB.
+_positions_lock = threading.Lock()
+_recent_searches_lock = threading.Lock()
+
+
+def _atomic_write_json(target, data):
+    """Write JSON to a unique temp file in target's directory, then rename over it."""
+    fd, tmp_path = tempfile.mkstemp(dir=str(target.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(data, ensure_ascii=False, indent=2))
+        os.replace(tmp_path, target)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def save_positions(data):
-    tmp_file = POSITIONS_FILE.with_suffix(".tmp")
-    tmp_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp_file.replace(POSITIONS_FILE)
+    _atomic_write_json(POSITIONS_FILE, data)
 
 
 # ─── Recent searches DB (file-based, server-synced across devices) ───────────
@@ -97,9 +127,7 @@ def load_recent_searches():
 
 
 def save_recent_searches(data):
-    tmp_file = RECENT_SEARCHES_FILE.with_suffix(".tmp")
-    tmp_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp_file.replace(RECENT_SEARCHES_FILE)
+    _atomic_write_json(RECENT_SEARCHES_FILE, data)
 
 
 def record_recent_search(q):
@@ -107,11 +135,12 @@ def record_recent_search(q):
     q = (q or "").strip()
     if not q or len(q) > 200:
         return load_recent_searches()
-    data = load_recent_searches()
-    queries = [item for item in data.get("queries", []) if item.get("q", "").lower() != q.lower()]
-    queries.insert(0, {"q": q, "ts": int(time.time())})
-    data["queries"] = queries[:RECENT_SEARCHES_LIMIT]
-    save_recent_searches(data)
+    with _recent_searches_lock:
+        data = load_recent_searches()
+        queries = [item for item in data.get("queries", []) if item.get("q", "").lower() != q.lower()]
+        queries.insert(0, {"q": q, "ts": int(time.time())})
+        data["queries"] = queries[:RECENT_SEARCHES_LIMIT]
+        save_recent_searches(data)
     return data
 
 
@@ -180,6 +209,26 @@ def _torrent_exists(torrent_hash):
     return False
 
 
+def _is_public_http_url(link):
+    """True when the URL's host resolves only to public addresses.
+
+    TorrServer fetches http(s) links server-side, so without this check
+    /api/add is an SSRF primitive into the VM's loopback services and the
+    cloud metadata endpoint (169.254.169.254).
+    """
+    try:
+        host = urlparse(link).hostname
+        if not host:
+            return False
+        for info in socket.getaddrinfo(host, None):
+            ip = ipaddress.ip_address(info[4][0])
+            if not ip.is_global:
+                return False
+        return True
+    except (ValueError, OSError):
+        return False
+
+
 def normalize_torrent_link(raw_link):
     """Accept magnet links, HTTP URLs, and bare BTIH hashes."""
     link = (raw_link or "").strip()
@@ -190,6 +239,8 @@ def normalize_torrent_link(raw_link):
         return link, ""
 
     if link.startswith("http://") or link.startswith("https://"):
+        if not _is_public_http_url(link):
+            return None, "invalid link"
         return link, ""
 
     if re.fullmatch(r"[A-Fa-f0-9]{40}", link) or re.fullmatch(r"[A-Z2-7a-z2-7]{32}", link):
@@ -230,11 +281,23 @@ def set_viewed(torrent_hash, file_index):
     return result is not None
 
 
+def _upstream_stream_url(filename, torrent_hash, file_index):
+    """Build the TorrServer stream URL from sanitized parts.
+
+    The filename is display-only for TorrServer, but it arrives from a
+    `<path:...>` route — strip directories and percent-encode so `../` and
+    `?`/`&`/`#` can't rewrite the upstream path or query string.
+    """
+    safe_name = quote(filename.split("/")[-1], safe="")
+    return f"{TORRSERVER}/stream/{safe_name}?link={torrent_hash}&index={file_index}&play"
+
+
 def probe_stream_access(filename, torrent_hash, file_index):
     """Check whether a stream request would succeed without returning the media body."""
-    ts_url = f"{TORRSERVER}/stream/{filename}?link={torrent_hash}&index={file_index}&play"
+    ts_url = _upstream_stream_url(filename, torrent_hash, file_index)
     try:
-        r = requests.get(ts_url, auth=TORRSERVER_AUTH, headers={"Range": "bytes=0-0"}, stream=True, timeout=20)
+        r = requests.get(ts_url, auth=TORRSERVER_AUTH, headers={"Range": "bytes=0-0"}, stream=True,
+                         timeout=20, allow_redirects=False)
         try:
             content_type = r.headers.get("Content-Type", "")
             ok = r.status_code < 400
@@ -302,7 +365,7 @@ def list_torrents():
 
     enriched = []
     for t in torrents:
-        h = t.get("hash", "")
+        h = (t.get("hash") or "").lower()  # positions keys are normalized lowercase
         pos_data = positions.get(h, {})
         files_pos = pos_data.get("files", {})
         last_idx = pos_data.get("last_file_index", 0)
@@ -392,11 +455,7 @@ def list_files(torrent_hash):
     # torrent until the user manually clicked twice. Probe once with a 0-byte range
     # request; TorrServer opens the torrent, populates file_stats, then we re-GET.
     if not file_stats and result.get("hash"):
-        name_parts = (result.get("name") or "movie").replace(" ", "%20")
-        warmup_url = (
-            f"{TORRSERVER}/stream/{name_parts}"
-            f"?link={torrent_hash}&index=1&play"
-        )
+        warmup_url = _upstream_stream_url(result.get("name") or "movie", torrent_hash, 1)
         try:
             requests.get(
                 warmup_url,
@@ -527,16 +586,20 @@ def get_position(torrent_hash):
         # exists is True (known but no position) or None (TS unreachable) → fall through with zeros
         pos_data = {}
 
-    file_index = request.args.get("file_index", str(pos_data.get("last_file_index", 1)))
+    raw_index = request.args.get("file_index")
+    try:
+        file_index = int(raw_index) if raw_index is not None else int(pos_data.get("last_file_index", 1) or 1)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "invalid file_index"}), 400
 
     files_pos = pos_data.get("files", {})
-    fp = files_pos.get(file_index, {})
+    fp = files_pos.get(str(file_index), {})
 
     return jsonify({
         "ok": True,
         "position": fp.get("position", 0),
         "duration": fp.get("duration", 0),
-        "last_file_index": pos_data.get("last_file_index", int(file_index)),
+        "last_file_index": pos_data.get("last_file_index", file_index),
     })
 
 
@@ -575,29 +638,30 @@ def save_position(torrent_hash):
     file_index = str(file_index_int)
     now = int(time.time())
 
-    positions = load_positions()
-    if torrent_hash not in positions:
-        positions[torrent_hash] = {"files": {}, "last_file_index": file_index_int, "updated": now}
-
-    entry = positions[torrent_hash]
-    if "files" not in entry:
-        entry["files"] = {}
-
-    entry["files"][file_index] = {"position": pos, "duration": dur, "updated": now}
-    entry["last_file_index"] = file_index_int
-    entry["updated"] = now
-
-    viewed_sync_attempted = dur > 0 and pos / dur > 0.95
-    viewed_synced = False
-    # Auto-mark as viewed in TorrServer when > 95% watched
-    if viewed_sync_attempted:
-        viewed_synced = set_viewed(torrent_hash, file_index_int)
-
     try:
-        save_positions(positions)
+        with _positions_lock:
+            positions = load_positions()
+            if torrent_hash not in positions:
+                positions[torrent_hash] = {"files": {}, "last_file_index": file_index_int, "updated": now}
+
+            entry = positions[torrent_hash]
+            if "files" not in entry:
+                entry["files"] = {}
+
+            entry["files"][file_index] = {"position": pos, "duration": dur, "updated": now}
+            entry["last_file_index"] = file_index_int
+            entry["updated"] = now
+            save_positions(positions)
     except Exception as e:
         app.logger.warning("Failed to save positions: %s", e)
         return jsonify({"ok": False, "error": "failed to save position"}), 500
+
+    viewed_sync_attempted = dur > 0 and pos / dur > 0.95
+    viewed_synced = False
+    # Auto-mark as viewed in TorrServer when > 95% watched (network call —
+    # deliberately outside the positions lock)
+    if viewed_sync_attempted:
+        viewed_synced = set_viewed(torrent_hash, file_index_int)
 
     return jsonify({
         "ok": True,
@@ -609,14 +673,20 @@ def save_position(torrent_hash):
 @app.route("/api/stream/<path:filename>")
 def stream(filename):
     """Proxy video stream from TorrServer with range support."""
-    torrent_hash = request.args.get("hash", "")
-    file_index = request.args.get("index", "1")
+    raw_hash = request.args.get("hash", "")
     probe_mode = request.args.get("probe") == "1"
 
-    if not torrent_hash:
+    if not raw_hash:
         return jsonify({"ok": False, "error": "missing hash"}), 400
+    torrent_hash, err = _validate_hash(raw_hash)
+    if err:
+        return err
+    try:
+        file_index = int(request.args.get("index", "1"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "invalid index"}), 400
 
-    ts_url = f"{TORRSERVER}/stream/{filename}?link={torrent_hash}&index={file_index}&play"
+    ts_url = _upstream_stream_url(filename, torrent_hash, file_index)
     headers = {}
     if "Range" in request.headers:
         headers["Range"] = request.headers["Range"]
@@ -627,7 +697,10 @@ def stream(filename):
         return jsonify(diagnostics), status_code
 
     try:
-        r = requests.get(ts_url, auth=TORRSERVER_AUTH, headers=headers, stream=True, timeout=30)
+        # Read timeout matches TorrServer's TorrentDisconnectTimeout=300 — a
+        # low-seeder buffering stall must not kill the stream at 30 s.
+        r = requests.get(ts_url, auth=TORRSERVER_AUTH, headers=headers, stream=True,
+                         timeout=(10, 300), allow_redirects=False)
         if r.status_code >= 400:
             payload = {
                 "ok": False,
@@ -648,8 +721,13 @@ def stream(filename):
             resp_headers["Content-Length"] = r.headers["Content-Length"]
 
         def generate():
-            for chunk in r.iter_content(chunk_size=1024 * 256):
-                yield chunk
+            try:
+                for chunk in r.iter_content(chunk_size=1024 * 256):
+                    yield chunk
+            finally:
+                # Client disconnects raise GeneratorExit through here — always
+                # release the upstream socket instead of leaving it to GC.
+                r.close()
 
         return Response(
             stream_with_context(generate()),
@@ -698,8 +776,13 @@ def remove_torrent(torrent_hash):
         }), 404
 
     result = ts_post("/torrents", {"action": "rem", "hash": torrent_hash})
-    positions.pop(torrent_hash, None)
-    save_positions(positions)
+    try:
+        with _positions_lock:
+            positions = load_positions()
+            positions.pop(torrent_hash, None)
+            save_positions(positions)
+    except Exception as e:
+        app.logger.warning("Failed to save positions after remove: %s", e)
     if result is None:
         # Distinguish from 404: torrent existed but TS rem failed → 502
         return jsonify({
@@ -796,7 +879,9 @@ def lampa_jackett_shim():
 def _lampa_proxy(upstream_path):
     """Shared proxy logic for the Lampa parser shim endpoints."""
     upstream = f"{JACRED_URL}{upstream_path}"
-    params = dict(request.args)
+    # Keep repeated params (e.g. multiple genres=) instead of collapsing the
+    # MultiDict to first-value-only; singletons stay scalar for the upstream.
+    params = {k: v[0] if len(v) == 1 else v for k, v in request.args.to_dict(flat=False).items()}
     if JACRED_KEY and not params.get("apikey"):
         params["apikey"] = JACRED_KEY
 
@@ -835,7 +920,7 @@ def clear_recent_searches():
 # ─── GitHub Webhook: auto-pull on push ───────────────────────────────────────
 GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
 GIT_REPO_PATH = Path(__file__).parent
-TORRSTREAM_SERVICE = os.getenv("TORRSTREAM_SERVICE", "torrstream.service")
+TORRSTREAM_SERVICE = os.getenv("TORRSTREAM_SERVICE", "flask-wrapper.service")
 
 
 @app.route("/api/github-webhook", methods=["POST"])
@@ -845,16 +930,23 @@ def github_webhook():
     Mirrors the saleapp-backend pattern: verify HMAC signature, pull origin/main,
     restart the systemd unit if any code-relevant file changed.
     """
+    # Fail closed: without a configured secret, anyone on the internet could
+    # trigger git pulls + service restarts (restart-loop DoS at minimum).
+    if not GITHUB_WEBHOOK_SECRET:
+        return jsonify({"ok": False, "error": "webhook not configured"}), 503
+
     body = request.get_data()
 
-    # Verify signature when secret is configured
-    if GITHUB_WEBHOOK_SECRET:
-        sig_header = request.headers.get("X-Hub-Signature-256", "")
-        expected = "sha256=" + hmac.new(
-            GITHUB_WEBHOOK_SECRET.encode(), body, hashlib.sha256
-        ).hexdigest()
-        if not hmac.compare_digest(sig_header, expected):
-            return jsonify({"ok": False, "error": "invalid signature"}), 401
+    sig_header = request.headers.get("X-Hub-Signature-256", "")
+    expected = "sha256=" + hmac.new(
+        GITHUB_WEBHOOK_SECRET.encode(), body, hashlib.sha256
+    ).hexdigest()
+    try:
+        sig_ok = hmac.compare_digest(sig_header.encode("utf-8", "replace"), expected.encode())
+    except Exception:
+        sig_ok = False
+    if not sig_ok:
+        return jsonify({"ok": False, "error": "invalid signature"}), 401
 
     try:
         payload = json.loads(body)
@@ -876,11 +968,15 @@ def github_webhook():
             except Exception:
                 pass
 
-    pull_result = subprocess.run(
-        ["git", "pull", "--ff-only", "origin", "main"],
-        cwd=str(GIT_REPO_PATH),
-        capture_output=True, text=True, timeout=30,
-    )
+    try:
+        pull_result = subprocess.run(
+            ["git", "pull", "--ff-only", "origin", "main"],
+            cwd=str(GIT_REPO_PATH),
+            capture_output=True, text=True, timeout=30,
+        )
+    except (subprocess.TimeoutExpired, OSError) as e:
+        app.logger.error("Webhook git pull failed to run: %s", e)
+        return jsonify({"ok": False, "error": f"git pull failed to run: {e}"}), 500
 
     # Restore runtime-state files if pull touched them
     for runtime_file, backup in runtime_backups.items():
@@ -890,6 +986,18 @@ def github_webhook():
                 runtime_file.write_text(backup, encoding="utf-8")
         except Exception as e:
             app.logger.warning("Failed to restore %s: %s", runtime_file.name, e)
+
+    # A failed pull must not report success or bounce the service — that
+    # combination (silently no-oping deploys while returning "updated") is
+    # exactly the failure mode that hid broken auto-deploys for weeks.
+    if pull_result.returncode != 0:
+        app.logger.error("Webhook git pull failed: %s", pull_result.stderr[:500])
+        return jsonify({
+            "ok": False,
+            "error": "git pull failed",
+            "pull_output": pull_result.stdout[:200],
+            "pull_stderr": pull_result.stderr[:500],
+        }), 500
 
     # Determine if any code files changed (so we know whether to restart)
     changed_files = []
@@ -907,10 +1015,18 @@ def github_webhook():
     # Schedule a restart with a short delay so this response can flush back to
     # GitHub before systemd kills the worker. Popen returns immediately.
     if code_changed:
-        subprocess.Popen(
-            ["bash", "-c", f"sleep 2 && sudo systemctl restart {TORRSTREAM_SERVICE}"],
-            cwd=str(GIT_REPO_PATH),
+        # The delay lets this response flush before systemd kills the worker.
+        # A failed restart can't be reported in this response, so route it to
+        # syslog where journalctl surfaces it.
+        restart_cmd = (
+            f"sleep 2 && sudo systemctl restart {TORRSTREAM_SERVICE}"
+            f" || logger -t torrstream 'webhook restart of {TORRSTREAM_SERVICE} FAILED'"
         )
+        try:
+            subprocess.Popen(["bash", "-c", restart_cmd], cwd=str(GIT_REPO_PATH))
+            app.logger.info("Webhook: restart of %s scheduled", TORRSTREAM_SERVICE)
+        except OSError as e:
+            app.logger.error("Webhook: failed to schedule restart: %s", e)
 
     return jsonify({
         "ok": True,
@@ -918,7 +1034,6 @@ def github_webhook():
         "restart_scheduled": code_changed,
         "files_changed": len(changed_files),
         "pull_output": pull_result.stdout[:200],
-        "pull_stderr": pull_result.stderr[:200] if pull_result.returncode != 0 else "",
     })
 
 
@@ -927,4 +1042,6 @@ if __name__ == "__main__":
     # Ensure directories exist
     (Path(__file__).parent / "templates").mkdir(exist_ok=True)
     (Path(__file__).parent / "static").mkdir(exist_ok=True)
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    # Loopback by default — Caddy terminates TLS and proxies to 127.0.0.1:5000.
+    # Set TORRSTREAM_HOST=0.0.0.0 explicitly for LAN testing.
+    app.run(host=os.getenv("TORRSTREAM_HOST", "127.0.0.1"), port=5000, debug=False)
